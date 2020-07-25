@@ -30,19 +30,21 @@ from obspy.signal.array_analysis import array_processing
 from obspy.geodetics.base import gps2dist_azimuth as gdist
 from obspy.imaging.cm import obspy_sequential
 from scipy.signal import coherence
+color={"color": "0.9"}
 
 class array_coherence(object):
-    def __init__(self,sac_file,reffield=None,startsec=None,endsec=None, hp=None,lp=None,npoles=3,outfile='tmp.png',debug=0):
+    #def __init__(self,sac_file,reffield=None,startsec=None,endsec=None, hp=None,lp=None,npoles=3,outfile='tmp.png',debug=0):
+    def __init__(self,sac_file,reffield=None,startsec=None,endsec=None, freqs=None,outfile='tmp.png',debug=0):
         '''
         '''
         self.debug=debug
         self.log=self.setup_log(self.debug)
        
         # just do it 
-        self.run(sac_file,reffield,startsec,endsec,hp,lp,npoles,outfile)
+        self.run(sac_file,reffield,startsec,endsec,freqs,outfile)
 
     #def run(self,sacfile,reffield,startsec,endsec,hp,lp,npoles,vmax,dbrng,outfile):
-    def run(self,sacfiles,reffield,startsec,endsec,hp,lp,npoles,outfile):
+    def run(self,sacfiles,reffield,startsec,endsec,freqs,outfile):
         _name=f'{__name__}.run'
        
         self.log.info(f'{_name}: Reading sacfiles ------------------------')
@@ -52,14 +54,20 @@ class array_coherence(object):
         st=self.reffield_trim(st,reffield,startsec,endsec)
 
         self.log.info(f'{_name}:: Doing signal processing -----------------')
-        st=self.do_sigproc(st,False,hp,lp,npoles)
+        st=self.do_sigproc(st,False)
 
         self.log.info(f'{_name}: Computing stockwell ---------------------')
         ans=self.coher(st)
         
 #        self.log.info(f'{_name}: Plotting figure -------------------------')
-        self.make_fig(ans,outfile)
+        self.make_fig(ans,freqs,endsec,outfile)
         #self.make_fig(st[0],stockw,outfile,reffield,startsec,hp,lp,vmax,dbrng)
+    def ang180(self,angle):
+        angle =  int(angle) % 180; 
+
+        #// force it to be the positive remainder, so that 0 <= angle < 360  
+        angle = (angle + 180) % 180; 
+        return angle
 
     def coher(self,st):
         _name=f'{__name__}.coher'
@@ -76,14 +84,52 @@ class array_coherence(object):
                 latj=trj.stats.coordinates.latitude
                 lonj=trj.stats.coordinates.longitude
                 _idj=trj.id
-                m=gdist(lati,loni,latj,lonj)[0]
+                gd=gdist(lati,loni,latj,lonj)
+                m=gd[0]/1000
+                a0=gd[1]
+                a1=gd[2]
+                a2=self.ang180(a0) # interstation azimuth (0-180)
                 if m == 0.0:
                    continue 
-                f, Cxy = coherence(data_i, trj.data,trj.stats.sampling_rate)
-                ans.append([m,_idi,_idj,f,Cxy])
+                #f, Cxy = coherence(data_i, trj.data,fs=trj.stats.sampling_rate,nperseg=32,nfft=64,noverlap=16)
+                f, Cxy = coherence(data_i, trj.data,fs=trj.stats.sampling_rate,nperseg=32,noverlap=8)
+                self.plot_twosta(f,Cxy,_idi,_idj,m)
+                ans.append([m,a2,_idi,_idj,f,Cxy])
 #                print(m,Cxy[0:5],f[0:5])
-                print(_idi,_idj)
+                print(_idi,_idj,m,a0,a1,a2)
         return ans
+
+    def plot_twosta(self,f,Cxy,id1,id2,m):
+        fig=plt.figure(figsize=(6,6),dpi=200)
+        gs=fig.add_gridspec(1,1)
+        ax=fig.add_subplot(gs[0])
+        ax.plot(f,Cxy,linewidth=2,c='black',alpha=.6)
+        #ax.scatter(f,Cxy,marker='o',linewidth=.1,c='red',edgecolor='black')
+
+        ax.set_xlim(0,20)
+        xmajor=5
+        xminor=1
+        ax.xaxis.set_major_locator(MultipleLocator(xmajor))
+        ax.xaxis.set_major_formatter(FormatStrFormatter('%0.1f'))
+        ax.xaxis.set_minor_locator(MultipleLocator(xminor))
+        ax.xaxis.grid(b=True, which="minor", **color)
+        ax.xaxis.grid(b=True, which="major", **color)
+        ax.set_xlabel('Frequency(Hz')
+
+        ax.set_ylim(0,1.)
+        xmajor=0.25
+        xminor=0.05
+        ax.yaxis.set_major_locator(MultipleLocator(xmajor))
+        ax.yaxis.set_major_formatter(FormatStrFormatter('%0.1f'))
+        ax.yaxis.set_minor_locator(MultipleLocator(xminor))
+        ax.yaxis.grid(b=True, which="minor", **color)
+        ax.yaxis.grid(b=True, which="major", **color)
+        ax.set_ylabel('Coherence')
+        ax.set_title(f'Coherence between {id1} and {id2} ({m:0.2} km)',fontdict={'fontsize':8},loc='left')
+
+        outfile=f'cxy_{id1}_{id2}.png'
+        plt.savefig(outfile,bbox_inches='tight')
+        plt.close()
 
     def reffield_trim(self,st,reffield,startsec,endsec):
         _name=f'{__name__}.reffield_trim'
@@ -149,21 +195,28 @@ class array_coherence(object):
         return st
 
 
-    def plot_coherdist(self,ax,ans,freq):
+
+    def plot_coherdist(self,ax,ans,freq,winl):
         _name=f'{__name__}.coherdist'
         color={"color": "0.9"}
+        colors = [(1,1,1), (0, 0, 1), (0, 1, 0), (1, 0, 0)]
+        colors = [(0, 0, 1), (0, 1, 0), (1, 0, 0)]
+        cmap = LinearSegmentedColormap.from_list('my_colors', colors, N=6)
+
 
         dists=[]
         Cxys=[]
-        freqs=ans[0][3]
+        azs=[]
+        freqs=ans[0][4]
         _idx=self.find_nearest(freqs,freq)
         
         for i in ans:
             dists.append(i[0])
-            Cxys.append(i[4][_idx])
+            azs.append(i[1])
+            Cxys.append(i[5][_idx])
+#ax1.scatter(x, data, c=wts, alpha=0.6, edgecolors='none', cmap=cmap)
 
-        print(len(dists),len(Cxys))
-        ax.scatter(dists,Cxys,linewidth=0.35,marker='o',edgecolor='black',color='midnightblue')
+        scat=ax.scatter(dists,Cxys,c=azs,alpha=0.6,linewidth=0.35,marker='o',s=50,edgecolor='black',cmap=cmap)
 
     
         # xaxis stuff
@@ -174,21 +227,34 @@ class array_coherence(object):
         ax.xaxis.set_minor_locator(MultipleLocator(xminor))
         ax.xaxis.grid(b=True, which="minor", **color)
         ax.xaxis.grid(b=True, which="major", **color)
-        ax.set_xlabel('Distance (m)')
+        ax.set_xlabel('Interstation Distance (m)')
 #        ax.tick_params(labelbottom=False)    
 #    
 #        # yaxis stuff
-        ax.set_ylim(0,1)
+        ax.set_ylim(0,1.1)
         ymajor,yminor=self.tick_stride(0,1,base=.1,prec=2)
         ax.yaxis.set_major_locator(MultipleLocator(ymajor))
         ax.yaxis.set_minor_locator(MultipleLocator(yminor))
         ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
         ax.yaxis.grid(b=True, which="major", **color)
         ax.set_ylabel(f'Coherence')
+
+    
+        # plot colorbar
+        scat.set_cmap(cmap)
+        pos1 = ax.get_position()
+        newax=[pos1.x0+pos1.width+.01, pos1.y0, 0.01,pos1.height]
+        fig=ax.get_figure()
+        ax1=fig.add_axes(newax)
+        cbar=fig.colorbar(scat, cax=ax1)
+        cbar.set_label(f'Inter-sensor azimuth')
+        ax1.invert_yaxis()
+#        cbar_maj,cbar_min = self.tick_stride(vmin,vmax,base=1,prec=1)
+        ax1.yaxis.set_major_locator(MultipleLocator(30))
 #
 #
 #        # Title
-        ax.set_title(f'{freqs[_idx]}',fontdict={'fontsize':8},loc='center')
+        ax.set_title(f'Signal coherence at center frequency: {freqs[_idx]} Hz',fontdict={'fontsize':8},loc='center')
 #        ax.set_title(f'Ref:{true_start}',fontdict={'fontsize':8},loc='right')
         return 
 
@@ -294,20 +360,25 @@ class array_coherence(object):
              norm=Normalize(vmin=hist.min(), vmax=hist.max()))     
         # plot colorbar
         plt.savefig('junk2.png',bbox_inches='tight') 
-    
-    def make_fig(self,ans,outfile):
-        _name=f'{__name__}.make_fig'
-        fig = plt.figure(figsize=(8, 8),dpi=200)
+   
 
-        gs=fig.add_gridspec(1,1)
-        ax=fig.add_subplot(gs[0])
-        self.plot_coherdist(ax,ans,3.5)
-        gs.update(wspace=0.05, hspace=0.20)
+
+    def make_fig(self,ans,freqs,winl,outfile):
+        _name=f'{__name__}.make_fig'
+
+        for i in freqs:
+            fig = plt.figure(figsize=(8, 6),dpi=200)
+
+            gs=fig.add_gridspec(1,1)
+            ax=fig.add_subplot(gs[0])
+            self.plot_coherdist(ax,ans,i,winl)
+            gs.update(wspace=0.05, hspace=0.20)
 
 
 #        self.plot_q(ans,slow)
-        plt.savefig(outfile,bbox_inches='tight')
-        self.log.debug(f'{_name}: Done plotting')
+            outfile=f'Cxy_dist_f{i}.png'
+            plt.savefig(outfile,bbox_inches='tight')
+            self.log.debug(f'{_name}: Done plotting')
 
     def find_nearest(self,array, value):
         array = np.asarray(array)
@@ -414,7 +485,8 @@ class array_coherence(object):
     def nextpow2(self,number): # 
         return np.ceil(np.log2(number))
     
-    def do_sigproc(self,st,norm,hp,lp,npoles):
+    #def do_sigproc(self,st,norm,hp,lp,npoles):
+    def do_sigproc(self,st,norm):
         _name=f'{__name__}.do_sigproc'
         st.merge()
         st.detrend(type='linear')
@@ -422,15 +494,15 @@ class array_coherence(object):
             if norm:
                 d=tr.data/np.sqrt(np.sum(tr.data** 2))
                 tr.data=d
-            if hp and lp:
-                self.log.debug(f"Bandpass:{hp} to {lp} Hz")
-                tr.filter('bandpass',freqmin=hp,freqmax=lp,corners=3)
-            elif hp:
-                self.log.debug(f"Highpass: {hp} Hz")
-                tr.filter('highpass',freq=hp,corners=3)
-            elif lp:
-                self.log.debug(f"Lowpass: {lp} Hz")
-                tr.filter('lowpass',freq=lp,corners=3)
+#            if hp and lp:
+#                self.log.debug(f"Bandpass:{hp} to {lp} Hz")
+#                tr.filter('bandpass',freqmin=hp,freqmax=lp,corners=3)
+#            elif hp:
+#                self.log.debug(f"Highpass: {hp} Hz")
+#                tr.filter('highpass',freq=hp,corners=3)
+#            elif lp:
+#                self.log.debug(f"Lowpass: {lp} Hz")
+#                tr.filter('lowpass',freq=lp,corners=3)
             tr.taper(0.05)
         return st
 

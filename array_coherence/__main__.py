@@ -35,8 +35,8 @@ def main():
     parser.add_argument("--lp", type=float,default=None,
         required=False, help="Lowpass filter.")
 
-    parser.add_argument("--hp", type=float,default=None,
-        required=False, help="Highpass filter.")
+    parser.add_argument("--freqs", type=float,nargs='*',default=None,
+        required=True, help="Highpass filter.")
 
     parser.add_argument("--npoles", type=int, default=None,
         required=False, help="Npoles of filter.")
@@ -57,12 +57,12 @@ def main():
     wfile=args.wfile
     outpng=args.outpng
     lp=args.lp
-    hp=args.hp
+    freqs=args.freqs
     npoles=args.npoles
     debug=args.verbose
 
     # Do it all 
-    array_coherence(wfile,reffield=reffield,startsec=startsec,endsec=endsec,hp=hp,lp=lp,npoles=npoles,outfile=outpng,debug=debug)
+    array_coherence(wfile,reffield=reffield,startsec=startsec,endsec=endsec,freqs=freqs,outfile=outpng,debug=debug)
 
 
 class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
