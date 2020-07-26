@@ -20,29 +20,8 @@ def main():
             ''',
             epilog="")
 
-    parser.add_argument("-r","--reffield", type=str,
-        required=False, help="If set, and SAC input, then this defines zero time. Startsec/endsec are relative to this.")
-
-    parser.add_argument("-s","--startsec", type=float,
-        required=False, help="Number of seconds relative to reffield start to computation. Defaults to 0, aka 1st sample in input.")
-
-    parser.add_argument("-e","--endsec", type=float,
-        required=False, help="If not set, then takes the last sample of the input trace. Otherwise its the duration")
-
     parser.add_argument("-f","--wfile",type=str, nargs='*',
         required=True, help="Input seismic data file. SAC, for now.")
-
-    parser.add_argument("--lp", type=float,default=None,
-        required=False, help="Lowpass filter.")
-
-    parser.add_argument("--freqs", type=float,nargs='*',default=None,
-        required=True, help="Highpass filter.")
-
-    parser.add_argument("--npoles", type=int, default=None,
-        required=False, help="Npoles of filter.")
-
-    parser.add_argument("-o","--outpng", type=str, default='tmp.png',
-        required=False, help="output png file")
 
     parser.add_argument("-v", "--verbose", action="count",default=0,
         help="increase debug spewage spewage (e.g. -v, -vv, -vvv)")
@@ -51,18 +30,10 @@ def main():
         version='%(prog)s {version}'.format(version=__version__))
 
     args = parser.parse_args()
-    startsec=args.startsec
-    endsec=args.endsec
-    reffield=args.reffield
-    wfile=args.wfile
-    outpng=args.outpng
-    lp=args.lp
-    freqs=args.freqs
-    npoles=args.npoles
     debug=args.verbose
 
     # Do it all 
-    array_coherence(wfile,reffield=reffield,startsec=startsec,endsec=endsec,freqs=freqs,outfile=outpng,debug=debug)
+    #array_coherence(wfile,reffield=reffield,startsec=startsec,endsec=endsec,freqs=freqs,outfile=outpng,debug=debug)
 
 
 class CustomFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):

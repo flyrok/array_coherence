@@ -1,6 +1,6 @@
 '''
-Plot the wiggle and its stockwell transform
-Requires the stockwell.smt package
+
+
 
 '''
 
@@ -10,6 +10,20 @@ import logging
 import sys
 import types
 from math import *
+import configparser
+
+# Numpy
+import numpy as np
+# Obspy
+from obspy import Stream,read,UTCDateTime
+from obspy.core.util import AttribDict
+from obspy.signal.array_analysis import array_processing
+from obspy.geodetics.base import gps2dist_azimuth as gdist
+from obspy.imaging.cm import obspy_sequential
+
+# Scipy Coherence
+from scipy.signal import coherence
+from mtspec import mt_coherence as mtcoh
 
 # matplot lib stuff
 import matplotlib as mpl
@@ -18,30 +32,26 @@ mpl.use('Agg')
 from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
     AutoMinorLocator)
 from matplotlib.ticker import FuncFormatter
-
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.dates as mdates
 
 
-import numpy as np
-from obspy import Stream,read,UTCDateTime
-from obspy.core.util import AttribDict
-from obspy.signal.array_analysis import array_processing
-from obspy.geodetics.base import gps2dist_azimuth as gdist
-from obspy.imaging.cm import obspy_sequential
-from scipy.signal import coherence
 color={"color": "0.9"}
 
 class array_coherence(object):
     #def __init__(self,sac_file,reffield=None,startsec=None,endsec=None, hp=None,lp=None,npoles=3,outfile='tmp.png',debug=0):
-    def __init__(self,sac_file,reffield=None,startsec=None,endsec=None, freqs=None,outfile='tmp.png',debug=0):
+    #def __init__(self,sac_file,reffield=None,startsec=None,endsec=None, freqs=None,outfile='tmp.png',debug=0):
+    def __init__(self,sac_files,ini_file=None,outfile='tmp.png',debug=0):
         '''
         '''
-        self.debug=debug
-        self.log=self.setup_log(self.debug)
+        self.log=self.setup_log(debug)
+
+        self.ini=self.read_ini(ini_file)
+
+        self.st=self.read_sacfiles(sac_files)
        
         # just do it 
-        self.run(sac_file,reffield,startsec,endsec,freqs,outfile)
+#        self.run(sac_file,reffield,startsec,endsec,freqs,outfile)
 
     #def run(self,sacfile,reffield,startsec,endsec,hp,lp,npoles,vmax,dbrng,outfile):
     def run(self,sacfiles,reffield,startsec,endsec,freqs,outfile):
@@ -62,9 +72,17 @@ class array_coherence(object):
 #        self.log.info(f'{_name}: Plotting figure -------------------------')
         self.make_fig(ans,freqs,endsec,outfile)
         #self.make_fig(st[0],stockw,outfile,reffield,startsec,hp,lp,vmax,dbrng)
-    def ang180(self,angle):
-        angle =  int(angle) % 180; 
+        return 1
 
+    def ang180(self,angle):
+        '''
+        Confine angles to 0-180
+        input:
+        angle (float) in degrees
+        return:
+        angle (float) in degrees
+        '''
+        angle =  int(angle) % 180; 
         #// force it to be the positive remainder, so that 0 <= angle < 360  
         angle = (angle + 180) % 180; 
         return angle
@@ -524,6 +542,30 @@ class array_coherence(object):
             fmajor=myround(mrange/4,prec=prec,base=base)
             fminor=fmajor/4
             return fmajor,fminor
+
+    def read_ini(self,ini_file):
+        _name=f'{__name__}.read_pf'
+        '''
+        read the parm/ini file. 
+        This function doesn't test if parms are missing or accurate
+        str: pf_file
+        configparser configuration files
+        returns
+        object: configparser or -1
+        '''
+        if not ini_file:
+            return None
+        if not Path(ini_file).exists():
+            self.log.error(f"({_name}) {ini_file} doesn't exist")
+            return None
+        try:
+            ini = configparser.ConfigParser()
+            ini.read(ini_file)
+            return ini 
+        except Exception as e:
+            self.log.error(f"{_name} {e}")
+            sys.exit(-1)
+
 
     def setup_log(self,debug):
 
