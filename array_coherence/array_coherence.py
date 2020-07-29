@@ -1,6 +1,5 @@
 '''
-
-
+Class to compute array coherence
 
 '''
 
@@ -8,69 +7,62 @@
 from pathlib import Path
 import logging
 import sys
-import types
-from math import *
+#import types
+#from math import *
 import configparser
 
 # Numpy
 import numpy as np
+
 # Obspy
 from obspy import Stream,read,UTCDateTime
 from obspy.core.util import AttribDict
-from obspy.signal.array_analysis import array_processing
+from obspy.signal.cross_correlation  import correlate as xcorr 
+from obspy.signal.cross_correlation  import xcorr_max
 from obspy.geodetics.base import gps2dist_azimuth as gdist
-from obspy.imaging.cm import obspy_sequential
 
 # Scipy Coherence
 from scipy.signal import coherence
 from mtspec import mt_coherence as mtcoh
 
-# matplot lib stuff
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-mpl.use('Agg')
-from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
-    AutoMinorLocator)
-from matplotlib.ticker import FuncFormatter
-from matplotlib.colors import LinearSegmentedColormap
-import matplotlib.dates as mdates
+from array_coherence.plot_coherence import plot_twosta,plot_wigs
 
-
-color={"color": "0.9"}
 
 class array_coherence(object):
-    #def __init__(self,sac_file,reffield=None,startsec=None,endsec=None, hp=None,lp=None,npoles=3,outfile='tmp.png',debug=0):
-    #def __init__(self,sac_file,reffield=None,startsec=None,endsec=None, freqs=None,outfile='tmp.png',debug=0):
     def __init__(self,sac_files,ini_file=None,outfile='tmp.png',debug=0):
         '''
         '''
         self.log=self.setup_log(debug)
 
         self.ini=self.read_ini(ini_file)
+        self.sac_files=sac_files
 
-        self.st=self.read_sacfiles(sac_files)
        
-        # just do it 
-#        self.run(sac_file,reffield,startsec,endsec,freqs,outfile)
 
-    #def run(self,sacfile,reffield,startsec,endsec,hp,lp,npoles,vmax,dbrng,outfile):
-    def run(self,sacfiles,reffield,startsec,endsec,freqs,outfile):
-        _name=f'{__name__}.run'
+    def run_coherence_scipy(self):
+        _name='run_coherence_scipy'
        
-        self.log.info(f'{_name}: Reading sacfiles ------------------------')
-        st=self.read_sacfiles(sacfiles)
-
-        self.log.info(f'{_name}: Trimming wiggle, if needed---------------')
-        st=self.reffield_trim(st,reffield,startsec,endsec)
+        self.log.info(f'{_name}:: Reading SAC files -----------------')
+        st=self.read_sacfiles(self.sac_files)
 
         self.log.info(f'{_name}:: Doing signal processing -----------------')
-        st=self.do_sigproc(st,False)
+        st=self.do_sigproc(st)
 
-        self.log.info(f'{_name}: Computing stockwell ---------------------')
-        ans=self.coher(st)
+        self.log.info(f'{_name}: Getting start/end timesd---------------')
+        st=self.reffield_trim(st)
+
+        self.log.info(f'{_name}: Computing time shifts to align traces')
+        st,beam=self.time_align(st)
+
+        plot_wigs(st,beam)
+    
+        self.coherence_scipy(st)
+
+       # self.log.info(f'{_name}: Computing stockwell ---------------------')
+       # ans=self.coher(st)
         
-#        self.log.info(f'{_name}: Plotting figure -------------------------')
-        self.make_fig(ans,freqs,endsec,outfile)
+#      #  self.log.info(f'{_name}: Plotting figure -------------------------')
+       # self.make_fig(ans,freqs,endsec,outfile)
         #self.make_fig(st[0],stockw,outfile,reffield,startsec,hp,lp,vmax,dbrng)
         return 1
 
@@ -87,118 +79,267 @@ class array_coherence(object):
         angle = (angle + 180) % 180; 
         return angle
 
-    def coher(self,st):
-        _name=f'{__name__}.coher'
-        stime=st.sort(keys=['starttime'],reverse=True)[0].stats.starttime
-        etime=st.sort(keys=['endtime'],reverse=False)[0].stats.endtime
+    def coherence_scipy(self,st_):
+        _name=f'{__name__}.coherence_scipy'
         ans=[]
-        for i,tri in enumerate(st):
-            lati=tri.stats.coordinates.latitude
-            loni=tri.stats.coordinates.longitude
-            data_i=tri.data
-            _idi=tri.id
-            st.remove(tri)
-            for j,trj in enumerate(st):
-                latj=trj.stats.coordinates.latitude
-                lonj=trj.stats.coordinates.longitude
-                _idj=trj.id
+        st=st_.copy()
+        for i,tr_i in enumerate(st):
+            # Trace ID
+            _idi=tr_i.id
+
+            # Latitude/Longitude of tr_i
+            lati=tr_i.stats.coordinates.latitude
+            loni=tr_i.stats.coordinates.longitude
+
+            # Cut times of trace
+            startcut0=tr_i.stats.coordinates.startcut - tr_i.stats.coordinates.tshift
+            endcut0=tr_i.stats.coordinates.endcut - tr_i.stats.coordinates.tshift
+
+            # Check that correlation shift doesn't start before trace time
+            if startcut0 < tr_i.stats.starttime:
+                self.log.error(f'{_name} Badnessssssss with startcut {_idi} {startcut0} {tr_i.stats.starttime}')
+                startcut0=tr_i.stats.starttime
+
+            # Trim out the trace segment for Coherence measure
+            tr_i.trim(starttime=startcut0,endtime=endcut0)
+            data_i=tr_i.data
+
+            st.remove(tr_i)
+            for tr_j in st:
+                _idj=tr_j.id
+
+                latj=tr_j.stats.coordinates.latitude
+                lonj=tr_j.stats.coordinates.longitude
                 gd=gdist(lati,loni,latj,lonj)
-                m=gd[0]/1000
-                a0=gd[1]
-                a1=gd[2]
+                m=gd[0]/1000 # distance (km)
+                a0=gd[1] # azimuth sta1->sta2
+                a1=gd[2] # azimuth sta2->sta1
                 a2=self.ang180(a0) # interstation azimuth (0-180)
-                if m == 0.0:
-                   continue 
-                #f, Cxy = coherence(data_i, trj.data,fs=trj.stats.sampling_rate,nperseg=32,nfft=64,noverlap=16)
-                f, Cxy = coherence(data_i, trj.data,fs=trj.stats.sampling_rate,nperseg=32,noverlap=8)
-                self.plot_twosta(f,Cxy,_idi,_idj,m)
+
+
+                startcut1=tr_j.stats.coordinates.startcut - tr_j.stats.coordinates.tshift
+                endcut1=tr_j.stats.coordinates.endcut - tr_j.stats.coordinates.tshift
+                tr_j.trim(starttime=startcut1,endtime=endcut1)
+                data_j=tr_j.data
+                
+                f, Cxy = coherence(data_i, data_j,fs=tr_j.stats.sampling_rate,nperseg=32,noverlap=8)
+                plot_twosta(f,Cxy,_idi,_idj,m)
                 ans.append([m,a2,_idi,_idj,f,Cxy])
 #                print(m,Cxy[0:5],f[0:5])
-                print(_idi,_idj,m,a0,a1,a2)
+                print(f'{_idi} {_idj} {m:0.3f} km {a0:0.1f} {a1:0.1f} {a2:0.1f}')
         return ans
 
-    def plot_twosta(self,f,Cxy,id1,id2,m):
-        fig=plt.figure(figsize=(6,6),dpi=200)
-        gs=fig.add_gridspec(1,1)
-        ax=fig.add_subplot(gs[0])
-        ax.plot(f,Cxy,linewidth=2,c='black',alpha=.6)
-        #ax.scatter(f,Cxy,marker='o',linewidth=.1,c='red',edgecolor='black')
+    def beam_form_xcorr(self,st):
+        _name='beam_form_xcorr'
+        '''
+        '''
 
-        ax.set_xlim(0,20)
-        xmajor=5
-        xminor=1
-        ax.xaxis.set_major_locator(MultipleLocator(xmajor))
-        ax.xaxis.set_major_formatter(FormatStrFormatter('%0.1f'))
-        ax.xaxis.set_minor_locator(MultipleLocator(xminor))
-        ax.xaxis.grid(b=True, which="minor", **color)
-        ax.xaxis.grid(b=True, which="major", **color)
-        ax.set_xlabel('Frequency(Hz')
+        # sort wfs by distance
+        try:
+            st.traces.sort(key=lambda x: x.stats.sac.dist)
+        except Exception as e:
+            self.log.error(f'{_name} Sorting traces by distance failed. Is sac.dist set?')
+            pass
 
-        ax.set_ylim(0,1.)
-        xmajor=0.25
-        xminor=0.05
-        ax.yaxis.set_major_locator(MultipleLocator(xmajor))
-        ax.yaxis.set_major_formatter(FormatStrFormatter('%0.1f'))
-        ax.yaxis.set_minor_locator(MultipleLocator(xminor))
-        ax.yaxis.grid(b=True, which="minor", **color)
-        ax.yaxis.grid(b=True, which="major", **color)
-        ax.set_ylabel('Coherence')
-        ax.set_title(f'Coherence between {id1} and {id2} ({m:0.2} km)',fontdict={'fontsize':8},loc='left')
+        st_=st.copy()
+        for n,tr in enumerate(st_):
+            pre_npts=tr.stats.npts
+            
+            tr.trim(starttime=tr.stats.coordinates.startcut,endtime=tr.stats.coordinates.endcut)
+            
+            tr.taper(0.05)
+            post_npts=tr.stats.npts
+            self.log.debug(f'{_name} pre_npts:{pre_npts} post_npts:{post_npts}')
+            if n > 0:
+                if not dt0 == tr.stats.delta:
+                    self.log.error(f'{_name} Sample mismatch!!!')
+                if not len0 == tr.stats.npts:
+                    self.log.error(f'{_name} NPTS mismatch {sta0}:{len0} {tr.stats.station}:{tr.stats.npts}') 
+#                nshift=self.xcorr_fft(mdata,tr.data)
+                xc=xcorr(tr0,tr,tr.stats.npts // 2)
+                nshift,va=xcorr_max(xc)
+                tshift=nshift*dt0
+                st[n].stats.starttime+=tshift
+                self.log.debug(f'{_name} Time between {sta0}->{tr.stats.station} = {tshift:0.4f}')
+            else:
+                tr0=tr
+                dt0=tr.stats.delta
+                sta0=tr.stats.station
+                len0=tr.stats.npts
+                mdata=tr.data
+                tshift=0.0
+                nshift=0
+        st.stack(time_tol=2,npts_tol=50)
+        for tr in st:
+            startcut=float(self.ini.get('TIME','startsec'))
+            tr.stats.coordinates = AttribDict({
+                'startcut':0,
+                'endcut':0,
+                'nshift':0,
+                'tshift':0.0})
 
-        outfile=f'cxy_{id1}_{id2}.png'
-        plt.savefig(outfile,bbox_inches='tight')
-        plt.close()
+        return st.stack()
 
-    def reffield_trim(self,st,reffield,startsec,endsec):
-        _name=f'{__name__}.reffield_trim'
+    def time_align(self,st):
+        _name='time_align'
+        '''
+        '''
+
+        # make a beam
+        st_=st.copy()
+        beam=self.beam_form_xcorr(st_)
+        t=beam[0].times() + float(self.ini.get('TIME','plot_startsec'))
+        s=float(self.ini.get('TIME','startsec'))
+        e=float(self.ini.get('TIME','startsec'))+float(self.ini.get('TIME','duration'))
+        inds=self.get_idx(t,s,e)
+        bdata=beam[0].data[inds[0]:inds[-1]]
+        # sort wfs by distance
+        try:
+            st.traces.sort(key=lambda x: x.stats.sac.dist)
+        except Exception as e:
+            self.log.error(f'{_name} Sorting traces by distance failed. Is sac.dist set?')
+            pass
+
+        # loop through traces and xcorr with beam
+        st_=st.copy()
+        for n,tr in enumerate(st_):
+
+            pre_npts=tr.stats.npts
+            tr.trim(starttime=tr.stats.coordinates.startcut,endtime=tr.stats.coordinates.endcut)
+            
+            tr.taper(0.05)
+
+            post_npts=tr.stats.npts
+            self.log.debug(f'{_name} {tr.id} data_len:{pre_npts} xcorr_len:{post_npts}')
+            if n > 0: 
+                if not dt0 == tr.stats.delta:
+                    self.log.error(f'{_name} Sample mismatch {sta0} vs {tr.stats.station}!!!')
+                if not len0 == tr.stats.npts:
+                    self.log.error(f'{_name} NPTS mismatch {sta0}:{len0} {tr.stats.station}:{tr.stats.npts}') 
+
+                # Do xcorr
+                nshift=int(self.xcorr_fft(bdata,tr.data))
+                xc=xcorr(tr0,tr,tr.stats.npts // 2)
+                nshift,va=xcorr_max(xc)
+                tshift=nshift*dt0
+                self.log.debug(f'{_name} {sta0}->{tr.stats.station} xcorr_shift={tshift:0.4f}')
+            else:
+                tr0=tr
+                dt0=tr.stats.delta
+                sta0=tr.stats.station
+                len0=tr.stats.npts
+                mdata=tr.data
+                tshift=0.0
+                nshift=0
+
+            st[n].stats.coordinates['tshift']=tshift
+            st[n].stats.coordinates['nshift']=nshift
+#            st_+=tmp_tr
+        return st,beam
+
+
+    def xcorr_fft(self,x, y):
+
+        # pad to same len
+        n=len(x)
+        m=len(y)
+        if n > m:
+            result= np.zeros(x.shape)
+            result[:y.shape[0]]=y
+            y=result
+        elif m > n:
+            result= np.zeros(y.shape)
+            result[:x.shape[0]]=x
+            x=result
+
+        f1 = np.fft.fft(x)
+        # flip the signal of y
+        f2 = np.fft.fft(np.flipud(y))
+        assert len(f1) == len(f2)
+        xc = np.fft.fftshift(np.real(np.fft.ifft(f1 * f2)))
+        zero_index = int(len(x) / 2) - 1
+        shift = zero_index + np.argmax(xc)
+        return shift
+            
+
+    def reffield_trim(self,st):
+        _name='reffield_trim'
         '''
         SAC time is confusing
+        retun the epoch start/end time of the desired window.
+        This windows
+        tstart=reffield + startec
+        tend=tstart+duration
+        e.g.
+        tstart=tr.starttime
         '''
+        parms={'reffield':'o','startsec':0.0,'duration':1.0,'plot_startsec':0.0,'plot_dursec':0.0}
+        for i in parms:
+            try:
+                parms[i]=self.ini.get('TIME',i)
+            except Exception as e:
+                self.log.error(f'{_name} problem with ini={i}, {e}')
+                pass
         # trim the waveforms if required
         new_st=Stream()
-        if not reffield:
+        if not parms['reffield']:
             self.log.debug(f'{_name}: No reffield, skipping trim')
-            return st
-        if not startsec:
-            self.log.debug(f'{_name}: No startsec, using waveform starttime as 0 time')
-            startsec=0
-        for tr in st: # there should be only 1 trace in original Stream
+            return 1 
+        else:
+            reffield=parms['reffield'].lower()
+
+        for tr in st: 
+            try:
+                rcut=tr.stats.sac[reffield]  
+                b=tr.stats.sac['b'] # referenced to starttime 
+                # If the reffield is not the sac O field, then it is a pick referenced
+                # to O time. 
+                if reffield in 'a' or reffield in 't0' or reffield in 't1':
+                    o=tr.stats.sac['o']
+                else:
+                    o=0.0
+                self.log.debug(f'{_name}: b={b:0.5f} o={o:0.5f} reftime:{rcut:0.5f}')
+            except Exception as e:
+                self.log.error(f"Exiting, problem with reffield ({reffield}) for \n\t{tr}\n\t{e}")
+                sys.exit(0)
+
+            # Trime traces to plot windows
+            plot_startsec=float(parms['plot_startsec'])
+            plot_dursec=float(parms['plot_dursec'])
+            starttime=tr.stats.starttime
+            #t0=starttime + ((o - b) + rcut + plot_startsec)
+            t0=starttime  + rcut + plot_startsec - b
+            t1=t0+plot_dursec
+            tr.trim(starttime=t0,endtime=t1)
+
+            # Figure out coherence window
+            startsec=float(parms['startsec'])
+            duration=float(parms['duration'])
+            shift = (o - b) + rcut + startsec
+            self.log.debug(f'{_name}: Cutting {tr.stats.starttime} by {shift} seconds')
+            tstart=starttime + shift
+            if not duration:
+                tend=tr.stats.endtime
+            else:
+                tend=tstart+duration
 
             # attach some sac attributes
             tr.stats.coordinates = AttribDict({
                 'latitude': tr.stats.sac.stla,
                 'elevation': tr.stats.sac.stel,
-                'longitude':tr.stats.sac.stlo})
-            try:
-                rcut=tr.stats.sac[reffield.lower()]  # This will become 0 time 
-                b=tr.stats.sac['b'] # referenced to starttime 
-                # If the reffield is not the sac O field, then it is a pick referenced
-                # to O time. I think
-                if reffield.lower() in 'a' or ref in 't0' or ref in 't1':
-                    o=tr.stats.sac['o']
-                else:
-                    o=0.0
-                self.log.debug(f'{_name}: b={b} o={o} reftime:{rcut}')
-            except Exception as e:
-                self.log.error(f"Exiting, problem with reffield ({reffield}) for \n\t{tr}\n\t{e}")
-                sys.exit(0)
+                'longitude':tr.stats.sac.stlo,
+                'startcut':tstart,
+                'endcut':tend,
+                'nshift':0,
+                'tshift':0.0})
 
-           # tstart=tr.stats.starttime - b + rcut +startsec
-            shift = (o - b) + rcut + startsec
-            self.log.debug(f'{_name}: Cutting {tr.stats.starttime} by {shift} seconds')
-            tstart=tr.stats.starttime + shift
-            if not endsec:
-                tend=tr.stats.endtime
-            else:
-                tend=tstart+endsec
-            tr.trim(tstart,tend)
             new_st+=tr
-        self.log.info(f'{_name}: cut st {new_st}')
         new_st.sort(keys=['starttime'],reverse=False)
+        self.log.info(f'{_name}: cut st {new_st}')
         return new_st
 
     def read_sacfiles(self,sacfiles):
-        _name=f"{__name__}.read_sacfiles"
+        _name=f"read_sacfiles"
         '''
         '''
         st=Stream()
@@ -209,194 +350,9 @@ class array_coherence(object):
             self.log.error(f'{_name}: Problem reading {i} ... \n{e}')
             sys.exit(0)
 
-        self.log.debug(f'{_name}: Read {i} ')
+        self.log.debug(f'{_name}: Read {st} ')
         return st
 
-
-
-    def plot_coherdist(self,ax,ans,freq,winl):
-        _name=f'{__name__}.coherdist'
-        color={"color": "0.9"}
-        colors = [(1,1,1), (0, 0, 1), (0, 1, 0), (1, 0, 0)]
-        colors = [(0, 0, 1), (0, 1, 0), (1, 0, 0)]
-        cmap = LinearSegmentedColormap.from_list('my_colors', colors, N=6)
-
-
-        dists=[]
-        Cxys=[]
-        azs=[]
-        freqs=ans[0][4]
-        _idx=self.find_nearest(freqs,freq)
-        
-        for i in ans:
-            dists.append(i[0])
-            azs.append(i[1])
-            Cxys.append(i[5][_idx])
-#ax1.scatter(x, data, c=wts, alpha=0.6, edgecolors='none', cmap=cmap)
-
-        scat=ax.scatter(dists,Cxys,c=azs,alpha=0.6,linewidth=0.35,marker='o',s=50,edgecolor='black',cmap=cmap)
-
-    
-        # xaxis stuff
-        xmajor,xminor=self.tick_stride(np.min(dists),np.max(dists),base=1,prec=2)
-        ax.set_xlim(0,np.max(dists)*1.05)
-        ax.xaxis.set_major_locator(MultipleLocator(xmajor))
-        ax.xaxis.set_major_formatter(FormatStrFormatter('%0.1f'))
-        ax.xaxis.set_minor_locator(MultipleLocator(xminor))
-        ax.xaxis.grid(b=True, which="minor", **color)
-        ax.xaxis.grid(b=True, which="major", **color)
-        ax.set_xlabel('Interstation Distance (m)')
-#        ax.tick_params(labelbottom=False)    
-#    
-#        # yaxis stuff
-        ax.set_ylim(0,1.1)
-        ymajor,yminor=self.tick_stride(0,1,base=.1,prec=2)
-        ax.yaxis.set_major_locator(MultipleLocator(ymajor))
-        ax.yaxis.set_minor_locator(MultipleLocator(yminor))
-        ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
-        ax.yaxis.grid(b=True, which="major", **color)
-        ax.set_ylabel(f'Coherence')
-
-    
-        # plot colorbar
-        scat.set_cmap(cmap)
-        pos1 = ax.get_position()
-        newax=[pos1.x0+pos1.width+.01, pos1.y0, 0.01,pos1.height]
-        fig=ax.get_figure()
-        ax1=fig.add_axes(newax)
-        cbar=fig.colorbar(scat, cax=ax1)
-        cbar.set_label(f'Inter-sensor azimuth')
-        ax1.invert_yaxis()
-#        cbar_maj,cbar_min = self.tick_stride(vmin,vmax,base=1,prec=1)
-        ax1.yaxis.set_major_locator(MultipleLocator(30))
-#
-#
-#        # Title
-        ax.set_title(f'Signal coherence at center frequency: {freqs[_idx]} Hz',fontdict={'fontsize':8},loc='center')
-#        ax.set_title(f'Ref:{true_start}',fontdict={'fontsize':8},loc='right')
-        return 
-
-    def plot_q(self,in_data,slow):
-        from matplotlib.colorbar import ColorbarBase
-        from matplotlib.colors import Normalize
-        _name=f'{__name__}.plot_p'
-       # make output human readable, adjust backazimuth to values between 0 and 360
-        t, rel_power, abs_power, baz, slow = in_data.T
-        baz[baz < 0.0] += 360
-
-        colors = [(1,1,1), (0, 0, 1), (0, 1, 0), (1, 0, 0)]
-        cmap = LinearSegmentedColormap.from_list('my_colors', colors, N=50)
-
-        # choose number of fractions in plot (desirably 360 degree/N is an integer!)
-        N = 36
-        N2 = 50
-        abins = np.arange(N + 1) * 360. / N
-        sbins = np.linspace(0, slow, N2 + 1)
-        import types
-        print(len(abins),len(sbins),type(abins),type(sbins))
-        # sum rel power in bins given by abins and sbins
-        hist, baz_edges, sl_edges = \
-            np.histogram2d(baz, slow, bins=[len(abins), len(sbins)], weights=rel_power)
-
-        # transform to radian
-        baz_edges = np.radians(baz_edges)
-
-        # add polar and colorbar axes
-        fig = plt.figure(figsize=(6, 6))
-        cax = fig.add_axes([0.85, 0.2, 0.05, 0.5])
-        ax = fig.add_axes([0.10, 0.1, 0.70, 0.7], polar=True)
-        ax.set_theta_direction(-1)
-        ax.set_theta_zero_location("N")
-
-        dh = abs(sl_edges[1] - sl_edges[0])
-        dw = abs(baz_edges[1] - baz_edges[0])
-
-        # circle through backazimuth
-        for i, row in enumerate(hist):
-            #bars = ax.bar(left=(i * dw) * np.ones(N2), height=dh * np.ones(N2), width=dw, bottom=dh * np.arange(N2), color=cmap(row / hist.max()))
-            bars = ax.bar((i * dw) * np.ones(N2), height=dh * np.ones(N2), width=dw, bottom=dh * np.arange(N2), color=cmap(row / hist.max()))
-
-#        ax.set_xticks(np.linspace(0, 2 * np.pi, 12, endpoint=False))
-        ax.set_xticks(np.linspace(0, 2 * np.pi, 36, endpoint=False))
-        ax.set_xticklabels(['0°','','','30°','','','60°','','', '90°','','', '120°','','','150°','','', '180°','','','210°','','','240°','','','270°','','','300°','','','330°''','',])
-
-        # set slowness limits
-#        ax.set_ylim(0, slow)
-#        [i.set_color('grey') for i in ax.get_yticklabels()]
-        ColorbarBase(cax, cmap=cmap,
-             norm=Normalize(vmin=hist.min(), vmax=hist.max()))     
-        # plot colorbar
-        plt.savefig('junk2.png',bbox_inches='tight') 
-    def plot_p(self,in_data,slow):
-        from matplotlib.colorbar import ColorbarBase
-        from matplotlib.colors import Normalize
-        _name=f'{__name__}.plot_p'
-       # make output human readable, adjust backazimuth to values between 0 and 360
-        t, rel_power, abs_power, baz, slow = in_data.T
-        baz[baz < 0.0] += 360
-        print(len(baz),len(t));
-        colors = [(1,1,1), (0, 0, 1), (0, 1, 0), (1, 0, 0)]
-        cmap = LinearSegmentedColormap.from_list('my_colors', colors, N=50)
-
-        # choose number of fractions in plot (desirably 360 degree/N is an integer!)
-        N = 36
-        N2 = 25
-        abins = np.arange(N + 1) * 360. / N
-        sbins = np.linspace(0, slow, N2 + 1)
-        import types
-        print(len(abins),len(sbins),type(abins),type(sbins))
-        # sum rel power in bins given by abins and sbins
-        hist, baz_edges, sl_edges = \
-            np.histogram2d(baz, slow, bins=[len(abins), len(sbins)], weights=rel_power)
-
-        # transform to radian
-        baz_edges = np.radians(baz_edges)
-
-        # add polar and colorbar axes
-        fig = plt.figure(figsize=(6, 6))
-        cax = fig.add_axes([0.85, 0.2, 0.05, 0.5])
-        ax = fig.add_axes([0.10, 0.1, 0.70, 0.7], polar=True)
-        ax.set_theta_direction(-1)
-        ax.set_theta_zero_location("N")
-
-        dh = abs(sl_edges[1] - sl_edges[0])
-        dw = abs(baz_edges[1] - baz_edges[0])
-
-        # circle through backazimuth
-        for i, row in enumerate(hist):
-            #bars = ax.bar(left=(i * dw) * np.ones(N2), height=dh * np.ones(N2), width=dw, bottom=dh * np.arange(N2), color=cmap(row / hist.max()))
-            bars = ax.bar((i * dw) * np.ones(N2), height=dh * np.ones(N2), width=dw, bottom=dh * np.arange(N2), color=cmap(row / hist.max()))
-
-#        ax.set_xticks(np.linspace(0, 2 * np.pi, 12, endpoint=False))
-        ax.set_xticks(np.linspace(0, 2 * np.pi, 36, endpoint=False))
-        ax.set_xticklabels(['0°','','','30°','','','60°','','', '90°','','', '120°','','','150°','','', '180°','','','210°','','','240°','','','270°','','','300°','','','330°''','',])
-
-        # set slowness limits
-#        ax.set_ylim(0, slow)
-#        [i.set_color('grey') for i in ax.get_yticklabels()]
-        ColorbarBase(cax, cmap=cmap,
-             norm=Normalize(vmin=hist.min(), vmax=hist.max()))     
-        # plot colorbar
-        plt.savefig('junk2.png',bbox_inches='tight') 
-   
-
-
-    def make_fig(self,ans,freqs,winl,outfile):
-        _name=f'{__name__}.make_fig'
-
-        for i in freqs:
-            fig = plt.figure(figsize=(8, 6),dpi=200)
-
-            gs=fig.add_gridspec(1,1)
-            ax=fig.add_subplot(gs[0])
-            self.plot_coherdist(ax,ans,i,winl)
-            gs.update(wspace=0.05, hspace=0.20)
-
-
-#        self.plot_q(ans,slow)
-            outfile=f'Cxy_dist_f{i}.png'
-            plt.savefig(outfile,bbox_inches='tight')
-            self.log.debug(f'{_name}: Done plotting')
 
     def find_nearest(self,array, value):
         array = np.asarray(array)
@@ -404,14 +360,14 @@ class array_coherence(object):
         return idx
 
     def get_idx(self,arr,b,e):
-        _name=f'{__name__}.get_idx'
-        if b and e:
+        _name='get_idx'
+        if b >= arr[0] and e <= arr[-1]:
             self.log.debug(f'{_name}: indx from {b} to {e}')
-            _ind=np.nonzero((arr > b) & (arr < e))[0]
-        elif b:
+            _ind=np.nonzero((arr >= b) & (arr <= e))[0]
+        elif b >= arr[0] and e >= arr[-1]:
             self.log.debug(f'{_name}: indx from {b} to end')
             _ind=np.nonzero(arr >= b)[0];
-        elif e:
+        elif b <= arr[0] and e <= arr[-1]:
             self.log.debug(f'{_name}: indx from {e} to begin')
             _ind=np.nonzero(arr <= e)[0];
         else:
@@ -419,129 +375,56 @@ class array_coherence(object):
             _ind=np.nonzero(arr > -1)[0]
         return _ind
         
-    def plot_stockwell(self,ax,stockw,tr,tshift,hp,lp,vmax,dbrng):
-        _name=f'{__name__}.plot_stockwell'
-
-        # white to blue to green to red
-        colors = [(1,1,1), (0, 0, 1), (0, 1, 0), (1, 0, 0)]
-        cmap = LinearSegmentedColormap.from_list('my_colors', colors, N=50)
- 
-        nfreqs,ntimes=np.shape(stockw)
-        self.log.debug(f'{_name} nfreqs:{nfreqs} ntimes:{ntimes}')
-        t=tr.times()+tshift; # time vector
-        df=1/(tr.stats.delta*ntimes)
-
-        # figure out freq vector
-        if not hp:
-            hp=0.0
-        freqs=np.cumsum(np.zeros(nfreqs)+df)+hp # freq vector
-        self.log.debug(f'{_name} nfreqs={len(freqs)} freqmin={freqs[0]},freqmax={freqs[-1]}')      
-
-        # figure out bounds
-        #halfbin_time = tr.stats.delta/2.
-        #halfbin_freq = df/2.
-
-        xmin=t[0]
-        xmax=t[-1]
-#        ymin=freqs[0] - halfbin_freq
-        ymin=freqs[0] 
-        ymax=freqs[-1]
-        extent = (xmin,xmax,ymin,ymax)
-        self.log.debug(f'{_name}: setting extent to {extent}')
-        # adjust y-axis limits
-#        yminax=1/((x[-1]-x[0])/2) # require X number of cycles vs 1/2 window leng
-#        msg=f"Freq min: {freqs[0]:0.2f} Halfbin: {halfbin_freq:0.2f} Ymin:{yminax:0.2f}"
-#        print(msg)
-    
-        ampdata=stockw
-        if vmax:
-            vmax=vmax
-            vmin=vmax-60
-        else:
-            vmax=10*np.log10(np.max(ampdata))
-            vmin=vmax - 60 # 50 dB range
-#        vmin=np.log10(np.max(ampdata))
-#        #vmin=np.log10(np.min(ampdata))*.8
-        self.log.info(f'Stockwell mesh Vmin/Vmax range: {vmin}/{vmax}')
-    
-        colorplot = ax.imshow(10*np.log10(ampdata), interpolation='none',vmax=vmax,vmin=vmin,
-                               extent=extent, cmap=cmap,aspect="auto")
-    
-        # plot colorbar
-        colorplot.set_cmap(cmap)
-        pos1 = ax.get_position()
-        newax=[pos1.x0+pos1.width+.01, pos1.y0, 0.01,pos1.height]
-        fig=ax.get_figure()
-        ax1=fig.add_axes(newax)
-        cbar=fig.colorbar(colorplot, cax=ax1)
-        cbar.set_label(r'$10\cdot\log_{10}\left(Amp^{2}/Hz\right)$')
-        ax1.invert_yaxis()
-        cbar_maj,cbar_min = self.tick_stride(vmin,vmax,base=1,prec=1)
-        self.log.debug(f'{_name}: cbar_maj/minor: {cbar_maj}/{cbar_min}')
-        ax1.yaxis.set_major_locator(MultipleLocator(cbar_maj))
-        ax1.yaxis.set_major_formatter(FormatStrFormatter('%0d'))
-        ax1.yaxis.set_minor_locator(MultipleLocator(cbar_min))
-
-        # X-axis
-        xmajor,xminor=self.tick_stride(t[0],t[-1])
-        ax.xaxis.set_major_locator(MultipleLocator(xmajor))
-        ax.xaxis.set_major_formatter(FormatStrFormatter('%0.1f'))
-        ax.xaxis.set_minor_locator(MultipleLocator(xminor))
-        ax.set_xlabel('Time (s)')
-
-    # Y-axis
-        ymajor,yminor=self.tick_stride(ymin,ymax)
-        ax.set_ylim(ymin,ymax)
-        ax.yaxis.set_major_locator(MultipleLocator(ymajor))
-        ax.yaxis.set_major_formatter(FormatStrFormatter('%0.1f'))
-        ax.yaxis.set_minor_locator(MultipleLocator(yminor))
-        ax.set_ylabel('Frequency (Hz)')
-    # going log
-        formatter = FuncFormatter(lambda y, _: '{:.16g}'.format(y))
-        ax.yaxis.set_major_formatter(formatter)
 
     def nextpow2(self,number): # 
         return np.ceil(np.log2(number))
     
-    #def do_sigproc(self,st,norm,hp,lp,npoles):
-    def do_sigproc(self,st,norm):
-        _name=f'{__name__}.do_sigproc'
+
+    def do_sigproc(self,st):
+        _name='do_sigproc'
+        '''
+        Perform some signal process.
+        Detrend, taper, filter,normalize
+        No check to see if filter parms are ok
+        '''
+
+        # Important ini file parameters, with default setting
+        parms={'detrend':'linear','taper':0.0,'hp':0.0,'lp':0.0,'npoles':0.0,'passes':1}
+        for i in parms:
+            try:
+                parms[i]=self.ini.get('SIG_PROC',i)
+            except Exception as e:
+                self.log.error(f'{_name}: {i}: Error {e}')
+                pass
+
         st.merge()
-        st.detrend(type='linear')
-        for tr in st:
-            if norm:
-                d=tr.data/np.sqrt(np.sum(tr.data** 2))
-                tr.data=d
-#            if hp and lp:
-#                self.log.debug(f"Bandpass:{hp} to {lp} Hz")
-#                tr.filter('bandpass',freqmin=hp,freqmax=lp,corners=3)
-#            elif hp:
-#                self.log.debug(f"Highpass: {hp} Hz")
-#                tr.filter('highpass',freq=hp,corners=3)
-#            elif lp:
-#                self.log.debug(f"Lowpass: {lp} Hz")
-#                tr.filter('lowpass',freq=lp,corners=3)
-            tr.taper(0.05)
-        return st
+        st.detrend(type=parms['detrend'])
 
+        if parms['taper']:
+            st.taper(float(parms['taper']))
 
-    def tick_stride(self,xmin,xmax,prec=2, base=1):
-        '''
-        Figure out a reasonable tick stride
-        '''
-        def myround(x, prec=2, base=1):
-              return round(base * round(float(x)/base),prec)
+        hp=float(parms['hp'])
+        lp=float(parms['lp'])
+        npoles=int(parms['npoles'])
+        passes=int(parms['passes']) # 0=minphase,1=zerophase
 
-        # Need to figure out a good date algo
-        if isinstance(xmin,UTCDateTime) and isinstance(xmax,UTCDateTime):
-            mrange=xmax.matplotlib_date - xmin.matplotlib_date # mdate days
-            fmajor=myround(mrange/5,prec=prec,base=base)
-            fminor=fmajor/5
+        if hp and lp:
+            self.log.debug(f"{_name} Bandpass:{hp} to {lp} Hz")
+            st.filter('bandpass',freqmin=hp,freqmax=lp,corners=npoles,zerophase=passes)
+        elif hp:
+            self.log.debug(f"{_name} Highpass: {hp} Hz")
+            st.filter('highpass',freq=hp,corners=npoles,zerophase=passes)
+        elif lp:
+            self.log.debug(f"{_name} Lowpass: {lp} Hz")
+            st.filter('highpass',freq=lp,corners=npoles,zerophase=passes)
         else:
-            mrange=myround((xmax-xmin),prec=prec,base=base)
-            fmajor=myround(mrange/4,prec=prec,base=base)
-            fminor=fmajor/4
-            return fmajor,fminor
+            self.log.debug(f'{_name} Not filtering')
+
+        # normalize amplitudes
+        for tr in st:
+            tr.data=tr.data/np.sqrt(np.sum(tr.data** 2)) 
+
+        return st
 
     def read_ini(self,ini_file):
         _name=f'{__name__}.read_pf'
