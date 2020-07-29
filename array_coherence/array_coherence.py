@@ -54,7 +54,7 @@ class array_coherence(object):
         self.log.info(f'{_name}: Computing time shifts to align traces')
         st,beam=self.time_align(st)
 
-        plot_wigs(st,beam)
+        plot_wigs(st,beam,outfig=self.ini.get('PLOT','outfile'))
     
         self.coherence_scipy(st)
 
