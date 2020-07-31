@@ -109,10 +109,9 @@ def plot_wigs(st,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
     ax.yaxis.set_major_locator(MultipleLocator(1))
     ax.yaxis.grid(b=True, which="minor", **color)
     ax.yaxis.grid(b=True, which="major", **color)
-    ax.set_title(f'Record Section)',fontdict=fontdict_title,loc='left')
+    ax.set_title(f'Record Section',fontdict=fontdict_title,loc='left')
 
     fig.savefig(outfig,format='png',bbox_inches="tight")
-
 
 
 
@@ -120,10 +119,10 @@ def plot_twosta(f,Cxy,id1,id2,m):
     fig=plt.figure(figsize=(6,6),dpi=200)
     gs=fig.add_gridspec(1,1)
     ax=fig.add_subplot(gs[0])
-    ax.plot(f,Cxy,linewidth=2,c='black',alpha=.6)
-    #ax.scatter(f,Cxy,marker='o',linewidth=.1,c='red',edgecolor='black')
+    ax.scatter(f,Cxy,marker='o',s=10,linewidth=.1,c='red',edgecolor='black')
+    ax.plot(f,Cxy,linewidth=2,c='midnightblue',alpha=.6)
 
-    ax.set_xlim(0,20)
+    ax.set_xlim(f[0],f[-1])
     xmajor=5
     xminor=1
     ax.xaxis.set_major_locator(MultipleLocator(xmajor))
@@ -148,8 +147,25 @@ def plot_twosta(f,Cxy,id1,id2,m):
     plt.savefig(outfile,bbox_inches='tight')
     plt.close()
 
+def make_fig(ans,fcs,outfile,fls=None,fus=None,domean=False):
+    _name='make_fig'
 
-def plot_coherdist(self,ax,ans,freq,winl):
+    for fc,fl,fu in zip(fcs,fls,fus):
+        fig = plt.figure(figsize=(8, 6),dpi=200)
+
+        gs=fig.add_gridspec(1,1)
+        ax=fig.add_subplot(gs[0])
+
+        plot_coherdist(ax,ans,fc,fl=fl,fu=fu,domean=domean)
+
+        gs.update(wspace=0.05, hspace=0.20)
+
+
+        outpng=f'{outfile}.{fc:0.3f}.png'
+        plt.savefig(outpng,bbox_inches='tight')
+
+
+def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
     _name=f'{__name__}.coherdist'
     color={"color": "0.9"}
     colors = [(1,1,1), (0, 0, 1), (0, 1, 0), (1, 0, 0)]
@@ -161,7 +177,10 @@ def plot_coherdist(self,ax,ans,freq,winl):
     Cxys=[]
     azs=[]
     freqs=ans[0][4]
-    _idx=self.find_nearest(freqs,freq)
+    if domean:
+        _idx0=find_nearest(freqs,fl)
+        _idx1=find_nearest(freqs,fu)
+    _idx=find_nearest(freqs,freq)
     
     for i in ans:
         dists.append(i[0])
@@ -173,7 +192,7 @@ def plot_coherdist(self,ax,ans,freq,winl):
 
 
     # xaxis stuff
-    xmajor,xminor=self.tick_stride(np.min(dists),np.max(dists),base=1,prec=2)
+    xmajor,xminor=tick_stride(np.min(dists),np.max(dists),base=1,prec=2)
     ax.set_xlim(0,np.max(dists)*1.05)
     ax.xaxis.set_major_locator(MultipleLocator(xmajor))
     ax.xaxis.set_major_formatter(FormatStrFormatter('%0.1f'))
@@ -185,7 +204,7 @@ def plot_coherdist(self,ax,ans,freq,winl):
 #    
 #        # yaxis stuff
     ax.set_ylim(0,1.1)
-    ymajor,yminor=self.tick_stride(0,1,base=.1,prec=2)
+    ymajor,yminor=tick_stride(0,1,base=.1,prec=2)
     ax.yaxis.set_major_locator(MultipleLocator(ymajor))
     ax.yaxis.set_minor_locator(MultipleLocator(yminor))
     ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
@@ -202,7 +221,6 @@ def plot_coherdist(self,ax,ans,freq,winl):
     cbar=fig.colorbar(scat, cax=ax1)
     cbar.set_label(f'Inter-sensor azimuth')
     ax1.invert_yaxis()
-#        cbar_maj,cbar_min = self.tick_stride(vmin,vmax,base=1,prec=1)
     ax1.yaxis.set_major_locator(MultipleLocator(30))
 #
 #
@@ -229,6 +247,12 @@ def tick_stride(xmin,xmax,prec=2, base=1):
         fmajor=myround(mrange/4,prec=prec,base=base)
         fminor=fmajor/4
         return fmajor,fminor
+
+def find_nearest(array, value):
+    array = np.asarray(array)
+    idx = (np.abs(array - value)).argmin()
+    return idx
+
 
 def get_idx(arr,b,e):
     _name='get_idx'
