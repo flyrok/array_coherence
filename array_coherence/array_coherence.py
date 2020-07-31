@@ -23,7 +23,7 @@ from obspy.geodetics.base import gps2dist_azimuth as gdist
 
 # Scipy Coherence
 from scipy.signal import coherence
-from mtspec import mt_coherence as mtcoh
+#from mtspec import mt_coherence as mtcoh
 
 from array_coherence.plot_coherence import plot_twosta,plot_wigs,make_fig
 
@@ -554,7 +554,7 @@ class array_coherence(object):
         else:
             loglevel="DEBUG"
 
-        logging.basicConfig(filename='/dev/null', level=loglevel,
+        logging.basicConfig(level=loglevel,
             datefmt="%Y-%j %H:%M:%S", format="%(asctime)s-%(levelname)s %(message)s")
         log=logging.getLogger(__name__)
         ch = logging.StreamHandler()
