@@ -25,7 +25,7 @@ from obspy.geodetics.base import gps2dist_azimuth as gdist
 from scipy.signal import coherence
 from mtspec import mt_coherence as mtcoh
 
-from array_coherence.plot_coherence import plot_twosta,plot_wigs
+from array_coherence.plot_coherence import plot_twosta,plot_wigs,make_fig
 
 
 class array_coherence(object):
@@ -37,10 +37,12 @@ class array_coherence(object):
         self.ini=self.read_ini(ini_file)
         self.sac_files=sac_files
 
-       
 
     def run_coherence_scipy(self):
         _name='run_coherence_scipy'
+        '''
+        Main driver
+        '''
        
         self.log.info(f'{_name}:: Reading SAC files -----------------')
         st=self.read_sacfiles(self.sac_files)
@@ -54,16 +56,18 @@ class array_coherence(object):
         self.log.info(f'{_name}: Computing time shifts to align traces')
         st,beam=self.time_align(st)
 
-        plot_wigs(st,beam,outfig=self.ini.get('PLOT','outfile'))
-    
-        self.coherence_scipy(st)
-
-       # self.log.info(f'{_name}: Computing stockwell ---------------------')
-       # ans=self.coher(st)
+        self.log.info(f'{_name}: Plotting record section ')
+        plot_wigs(st,beam,outfig=self.ini.get('PLOT','wffig'))
         
-#      #  self.log.info(f'{_name}: Plotting figure -------------------------')
-       # self.make_fig(ans,freqs,endsec,outfile)
-        #self.make_fig(st[0],stockw,outfile,reffield,startsec,hp,lp,vmax,dbrng)
+        self.log.info(f'{_name}: Computing Coherence ---------------------')
+        ans=self.coherence_scipy(st)
+         
+        self.log.info(f'{_name}: Get some octave bands -------------------------')
+        fc,fl,fu=self.octave_bands()
+
+        self.log.info(f'{_name}: Plotting figure -------------------------')
+        make_fig(ans,fc,self.ini.get('PLOT','cdist_base'),fls=fl,fus=fu,domean=self.ini.get('PLOT','domean'))
+        
         return 1
 
     def ang180(self,angle):
@@ -80,12 +84,37 @@ class array_coherence(object):
         return angle
 
     def coherence_scipy(self,st_):
-        _name=f'{__name__}.coherence_scipy'
+        _name='coherence_scipy'
+        '''
+        Compute the Coherence-squared between all traces in stream *st_*
+
+        '''
         ans=[]
         st=st_.copy()
+
+        # Check parameter file vars
+        nperseg=self.ini.get('COHERENCE','nperseg')
+        if nperseg == 'None':  
+            nperseg=None
+        else:
+            nperseg=int(nperseg)
+
+        noverlap=self.ini.get('COHERENCE','noverlap')
+        if noverlap == 'None':  
+            noverlap=None
+        else: 
+            noverlap=int(noverlap) 
+
+        nfft=self.ini.get('COHERENCE','nfft')
+        if nfft == 'None':  
+            nfft=None
+        else: 
+            nfft=int(nfft)
+
         for i,tr_i in enumerate(st):
             # Trace ID
             _idi=tr_i.id
+            dt_i=tr_i.stats.delta
 
             # Latitude/Longitude of tr_i
             lati=tr_i.stats.coordinates.latitude
@@ -95,16 +124,19 @@ class array_coherence(object):
             startcut0=tr_i.stats.coordinates.startcut - tr_i.stats.coordinates.tshift
             endcut0=tr_i.stats.coordinates.endcut - tr_i.stats.coordinates.tshift
 
-            # Check that correlation shift doesn't start before trace time
-            if startcut0 < tr_i.stats.starttime:
-                self.log.error(f'{_name} Badnessssssss with startcut {_idi} {startcut0} {tr_i.stats.starttime}')
+            # Check that correlation shift doesn't start before trace time, greatly
+            if (startcut0 - tr_i.stats.starttime) < -1*dt_i:
+                self.log.warn(f'{_name}: Startcut( {_idi}) less than trace starttime\n{startcut0} < {tr_i.stats.starttime}\ntry extending startsec time')
                 startcut0=tr_i.stats.starttime
 
             # Trim out the trace segment for Coherence measure
             tr_i.trim(starttime=startcut0,endtime=endcut0)
-            data_i=tr_i.data
 
+            if not nfft: nfft=tr_i.stats.npts
+        
+            data_i=self.pad(tr_i.data,nfft)
             st.remove(tr_i)
+
             for tr_j in st:
                 _idj=tr_j.id
 
@@ -120,18 +152,19 @@ class array_coherence(object):
                 startcut1=tr_j.stats.coordinates.startcut - tr_j.stats.coordinates.tshift
                 endcut1=tr_j.stats.coordinates.endcut - tr_j.stats.coordinates.tshift
                 tr_j.trim(starttime=startcut1,endtime=endcut1)
-                data_j=tr_j.data
+                data_j=self.pad(tr_j.data,nfft)
                 
-                f, Cxy = coherence(data_i, data_j,fs=tr_j.stats.sampling_rate,nperseg=32,noverlap=8)
+                f, Cxy = coherence(data_i, data_j,fs=tr_j.stats.sampling_rate,nperseg=nperseg,noverlap=noverlap,nfft=nfft)
                 plot_twosta(f,Cxy,_idi,_idj,m)
                 ans.append([m,a2,_idi,_idj,f,Cxy])
 #                print(m,Cxy[0:5],f[0:5])
-                print(f'{_idi} {_idj} {m:0.3f} km {a0:0.1f} {a1:0.1f} {a2:0.1f}')
+                self.log.info(f'Sta1:{_idi} Sta2:{_idj} Dist:{m:0.3f}km AZ12:{a0:0.1f} AZ21:{a1:0.1f} AZ_180:{a2:0.1f}')
         return ans
 
     def beam_form_xcorr(self,st):
         _name='beam_form_xcorr'
         '''
+        Beam form a stream of traces
         '''
 
         # sort wfs by distance
@@ -155,9 +188,7 @@ class array_coherence(object):
                     self.log.error(f'{_name} Sample mismatch!!!')
                 if not len0 == tr.stats.npts:
                     self.log.error(f'{_name} NPTS mismatch {sta0}:{len0} {tr.stats.station}:{tr.stats.npts}') 
-#                nshift=self.xcorr_fft(mdata,tr.data)
-                xc=xcorr(tr0,tr,tr.stats.npts // 2)
-                nshift,va=xcorr_max(xc)
+                nshift=self.xcorr_fft(mdata,tr.data)
                 tshift=nshift*dt0
                 st[n].stats.starttime+=tshift
                 self.log.debug(f'{_name} Time between {sta0}->{tr.stats.station} = {tshift:0.4f}')
@@ -178,11 +209,14 @@ class array_coherence(object):
                 'nshift':0,
                 'tshift':0.0})
 
+        # need to better understand obspy.stack. Is this
+        # doing what i want?
         return st.stack()
 
     def time_align(self,st):
         _name='time_align'
         '''
+        Ummm.  This is confusing
         '''
 
         # make a beam
@@ -219,8 +253,6 @@ class array_coherence(object):
 
                 # Do xcorr
                 nshift=int(self.xcorr_fft(bdata,tr.data))
-                xc=xcorr(tr0,tr,tr.stats.npts // 2)
-                nshift,va=xcorr_max(xc)
                 tshift=nshift*dt0
                 self.log.debug(f'{_name} {sta0}->{tr.stats.station} xcorr_shift={tshift:0.4f}')
             else:
@@ -234,31 +266,45 @@ class array_coherence(object):
 
             st[n].stats.coordinates['tshift']=tshift
             st[n].stats.coordinates['nshift']=nshift
-#            st_+=tmp_tr
         return st,beam
 
+    def pad(self,data,n):
+        _name='pad'
+        '''
+        Zero-pad array to length *n*
+        '''
+        if len(data) < n:
+            result= np.zeros(n)
+            result[:data.shape[0]]=data
+            return result
+        else:
+             return data
 
     def xcorr_fft(self,x, y):
+        _name='xcorr_fft'
+        '''
+        Compute the freq domain cross correlation 
+        between to array.
+        If the arrays are not the same length, then 
+        the short one is zero-padded to the length of the
+        longer one.
+        Returns the shift in samples
+        '''
 
-        # pad to same len
-        n=len(x)
-        m=len(y)
-        if n > m:
-            result= np.zeros(x.shape)
-            result[:y.shape[0]]=y
-            y=result
-        elif m > n:
-            result= np.zeros(y.shape)
-            result[:x.shape[0]]=x
-            x=result
+        # pad to same len.
+        lengths=[len(x),len(y)]
+        N=np.argmax(lengths)
+        x=self.pad(x,lengths[N])
+        y=self.pad(y,lengths[N])
 
+        # do the xcorr ----
         f1 = np.fft.fft(x)
         # flip the signal of y
         f2 = np.fft.fft(np.flipud(y))
-        assert len(f1) == len(f2)
+        assert len(f1) == len(f2) # this will throw an exception if not true
         xc = np.fft.fftshift(np.real(np.fft.ifft(f1 * f2)))
         zero_index = int(len(x) / 2) - 1
-        shift = zero_index + np.argmax(xc)
+        shift =  np.argmax(xc) - zero_index
         return shift
             
 
@@ -266,12 +312,10 @@ class array_coherence(object):
         _name='reffield_trim'
         '''
         SAC time is confusing
-        retun the epoch start/end time of the desired window.
-        This windows
+        return the epoch start/end time of the desired window.
+        This windows the data to:
         tstart=reffield + startec
         tend=tstart+duration
-        e.g.
-        tstart=tr.starttime
         '''
         parms={'reffield':'o','startsec':0.0,'duration':1.0,'plot_startsec':0.0,'plot_dursec':0.0}
         for i in parms:
@@ -323,7 +367,7 @@ class array_coherence(object):
             else:
                 tend=tstart+duration
 
-            # attach some sac attributes
+            # attach some important values to sac attribute dict.
             tr.stats.coordinates = AttribDict({
                 'latitude': tr.stats.sac.stla,
                 'elevation': tr.stats.sac.stel,
@@ -354,36 +398,11 @@ class array_coherence(object):
         return st
 
 
-    def find_nearest(self,array, value):
-        array = np.asarray(array)
-        idx = (np.abs(array - value)).argmin()
-        return idx
-
-    def get_idx(self,arr,b,e):
-        _name='get_idx'
-        if b >= arr[0] and e <= arr[-1]:
-            self.log.debug(f'{_name}: indx from {b} to {e}')
-            _ind=np.nonzero((arr >= b) & (arr <= e))[0]
-        elif b >= arr[0] and e >= arr[-1]:
-            self.log.debug(f'{_name}: indx from {b} to end')
-            _ind=np.nonzero(arr >= b)[0];
-        elif b <= arr[0] and e <= arr[-1]:
-            self.log.debug(f'{_name}: indx from {e} to begin')
-            _ind=np.nonzero(arr <= e)[0];
-        else:
-            self.log.debug(f'{_name}: indx from all')
-            _ind=np.nonzero(arr > -1)[0]
-        return _ind
-        
-
-    def nextpow2(self,number): # 
-        return np.ceil(np.log2(number))
-    
 
     def do_sigproc(self,st):
         _name='do_sigproc'
         '''
-        Perform some signal process.
+        Perform some signal processing
         Detrend, taper, filter,normalize
         No check to see if filter parms are ok
         '''
@@ -397,17 +416,23 @@ class array_coherence(object):
                 self.log.error(f'{_name}: {i}: Error {e}')
                 pass
 
+        # merge traces, in case there are small gaps
         st.merge()
+
+        # detrend
         st.detrend(type=parms['detrend'])
 
+        # taper
         if parms['taper']:
             st.taper(float(parms['taper']))
 
+        # filter parameters
         hp=float(parms['hp'])
         lp=float(parms['lp'])
         npoles=int(parms['npoles'])
         passes=int(parms['passes']) # 0=minphase,1=zerophase
 
+        # apply filter
         if hp and lp:
             self.log.debug(f"{_name} Bandpass:{hp} to {lp} Hz")
             st.filter('bandpass',freqmin=hp,freqmax=lp,corners=npoles,zerophase=passes)
@@ -420,11 +445,37 @@ class array_coherence(object):
         else:
             self.log.debug(f'{_name} Not filtering')
 
-        # normalize amplitudes
+        # normalize data to the power in the traces
         for tr in st:
             tr.data=tr.data/np.sqrt(np.sum(tr.data** 2)) 
 
         return st
+
+    def octave_bands(self):
+        _name=f'octave_bands'
+        '''
+        return center freqs, fmin,fmax
+        e.g.
+        fmin=1
+        fmax=12
+        bw=1/3
+        dt=1/samps_per_sec
+        '''
+        
+        fmin=self.ini.getfloat('PLOT','fmin')
+        fmax=self.ini.getfloat('PLOT','fmax')
+        bw=self.ini.getfloat('PLOT','bw')
+
+        octs=np.log2(fmax/fmin); # number of octaves
+        bmax=np.ceil(octs/bw); # maximum number of bands of bw
+
+        fc=fmin*2**(np.arange(0,bmax)*bw) # center freqs
+        fl=fc*2**(-bw/2); # freq_low
+        fu=fc*2**(+bw/2); # freq_high
+        self.log.info(f'{_name}: Octave nbands={len(fc)} ')
+
+        return fc,fl,fu
+
 
     def read_ini(self,ini_file):
         _name=f'{__name__}.read_pf'
@@ -449,6 +500,46 @@ class array_coherence(object):
             self.log.error(f"{_name} {e}")
             sys.exit(-1)
 
+
+    def find_nearest(self,array, value):
+        _name='find_nearest'
+        '''
+        find the index of the element of *array* that
+        is closest to *value*. This returns a single index
+        '''
+        array = np.asarray(array)
+        idx = (np.abs(array - value)).argmin()
+        return idx
+
+    def get_idx(self,arr,b,e):
+        _name='get_idx'
+        '''
+        Retern a list of indexes to array *arr* that meet the
+        criteria that the *arr* values are between *b* and *e*
+        '''
+
+        if b >= arr[0] and e <= arr[-1]:
+            self.log.debug(f'{_name}: indx from {b} to {e}')
+            _ind=np.nonzero((arr >= b) & (arr <= e))[0]
+        elif b >= arr[0] and e >= arr[-1]:
+            self.log.debug(f'{_name}: indx from {b} to end')
+            _ind=np.nonzero(arr >= b)[0];
+        elif b <= arr[0] and e <= arr[-1]:
+            self.log.debug(f'{_name}: indx from {e} to begin')
+            _ind=np.nonzero(arr <= e)[0];
+        else:
+            self.log.debug(f'{_name}: indx from all')
+            _ind=np.nonzero(arr > -1)[0]
+        return _ind
+
+
+    def nextpow2(self,number): # 
+        '''
+            return the 
+        '''
+
+        return np.ceil(np.log2(number))
+    
 
     def setup_log(self,debug):
 
