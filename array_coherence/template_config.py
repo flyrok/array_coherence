@@ -28,6 +28,10 @@ duration=5.0
 #   floats
 plot_startsec=-10.
 plot_dursec=40.0
+## Time Align. Set xcorr=False to use manually picked 
+# phase time to align each trace
+xcorr=True
+treffield=a
 
 [COHERENCE]
 ## The power spectra are estimated using Welch's method. ##
