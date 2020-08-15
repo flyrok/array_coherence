@@ -147,7 +147,7 @@ def plot_twosta(f,Cxy,id1,id2,m):
     plt.savefig(outfile,bbox_inches='tight')
     plt.close()
 
-def make_fig(ans,fcs,outfile,fls=None,fus=None,domean=False):
+def make_fig(ans,fcs,outfile,fls=None,fus=None,domean=True):
     _name='make_fig'
 
     for fc,fl,fu in zip(fcs,fls,fus):
@@ -156,12 +156,12 @@ def make_fig(ans,fcs,outfile,fls=None,fus=None,domean=False):
         gs=fig.add_gridspec(1,1)
         ax=fig.add_subplot(gs[0])
 
-        plot_coherdist(ax,ans,fc,fl=fl,fu=fu,domean=domean)
+        fc_actual=plot_coherdist(ax,ans,fc,fl=fl,fu=fu,domean=domean)
 
         gs.update(wspace=0.05, hspace=0.20)
 
 
-        outpng=f'{outfile}.{fc:0.3f}.png'
+        outpng=f'{outfile}.{fc_actual:0.3f}.png'
         plt.savefig(outpng,bbox_inches='tight')
 
 
@@ -181,6 +181,7 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
         _idx0=find_nearest(freqs,fl)
         _idx1=find_nearest(freqs,fu)
     _idx=find_nearest(freqs,freq)
+
     
     for i in ans:
         dists.append(i[0])
@@ -199,7 +200,7 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
     ax.xaxis.set_minor_locator(MultipleLocator(xminor))
     ax.xaxis.grid(b=True, which="minor", **color)
     ax.xaxis.grid(b=True, which="major", **color)
-    ax.set_xlabel('Interstation Distance (m)')
+    ax.set_xlabel('Interstation Distance (km)')
 #        ax.tick_params(labelbottom=False)    
 #    
 #        # yaxis stuff
@@ -225,9 +226,10 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
 #
 #
 #        # Title
-    ax.set_title(f'Signal coherence at center frequency: {freqs[_idx]} Hz',fontdict={'fontsize':8},loc='center')
+    ax.set_title(f'Signal coherence at center frequency: {freqs[_idx]:0.3f} Hz',fontdict={'fontsize':8},loc='center')
 #        ax.set_title(f'Ref:{true_start}',fontdict={'fontsize':8},loc='right')
-    return 
+
+    return  freqs[_idx]
 
 
 def tick_stride(xmin,xmax,prec=2, base=1):
