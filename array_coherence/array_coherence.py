@@ -188,9 +188,14 @@ class array_coherence(object):
                     self.log.error(f'{_name} Sample mismatch!!!')
                 if not len0 == tr.stats.npts:
                     self.log.error(f'{_name} NPTS mismatch {sta0}:{len0} {tr.stats.station}:{tr.stats.npts}') 
-                nshift=self.xcorr_fft(mdata,tr.data)
-                tshift=nshift*dt0
-                st[n].stats.starttime+=tshift
+                if self.ini.getboolean('TIME','xcorr'):
+                    nshift=self.xcorr_fft(mdata,tr.data)
+                    tshift=nshift*dt0
+                else:
+                    phs=self.ini.get('TIME','treffield')
+                    tshift=float(st[n].stats.sac[phs])
+
+#                st[n].stats.starttime+=(tr0_tshift - tshift)
                 self.log.debug(f'{_name} Time between {sta0}->{tr.stats.station} = {tshift:0.4f}')
             else:
                 tr0=tr
@@ -198,8 +203,12 @@ class array_coherence(object):
                 sta0=tr.stats.station
                 len0=tr.stats.npts
                 mdata=tr.data
-                tshift=0.0
-                nshift=0
+                if not self.ini.getboolean('TIME','xcorr'):
+                    phs=self.ini.get('TIME','treffield')
+                    tr0_tshift=float(tr.stats.sac[phs])
+                else:
+                    tr0_tshift=0.0
+                    nshift=0
         st.stack(time_tol=2,npts_tol=50)
         for tr in st:
             startcut=float(self.ini.get('TIME','startsec'))
