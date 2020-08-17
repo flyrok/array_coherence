@@ -29,12 +29,16 @@ from array_coherence.plot_coherence import plot_twosta,plot_wigs,make_fig
 from array_coherence.setup_log import setup_log
 
 
+debug=0
+log=setup_log(debug)
+
 class array_coherence(object):
     def __init__(self,sac_files,ini_file=None,outfile='tmp.png',debug=0):
         '''
         '''
-        # Setup logging
-        self.log=setup_log(debug)
+        # Set debug level
+        setup_log(debug)
+        
         # load the ini configuration files
         self.ini=self.read_ini(ini_file)
         # set sac files# 
@@ -48,27 +52,27 @@ class array_coherence(object):
         And plot all the results.
         '''
        
-        self.log.info(f'{_name}:: Reading SAC files       -----------------')
+        log.info(f'{_name}:: Reading SAC files       -----------------')
         st=self.read_sacfiles(self.sac_files)
 
-        self.log.info(f'{_name}:: Doing signal processing -----------------')
+        log.info(f'{_name}:: Doing signal processing -----------------')
         st=self.do_sigproc(st)
 
-        self.log.info(f'{_name}: Trimming adn time aligning ---------------')
+        log.info(f'{_name}: Trimming adn time aligning ---------------')
         st,beam=self.reffield_trim(st)
 
 
-        self.log.info(f'{_name}: Plotting record section ')
+        log.info(f'{_name}: Plotting record section ')
         zero_off=float(self.ini.get('TIME','plot_startsec'))
         plot_wigs(st,zero_off,beam=beam,outfig=self.ini.get('PLOT','wffig'))
         
-        self.log.info(f'{_name}: Computing Coherence  ---------------------')
+        log.info(f'{_name}: Computing Coherence  ---------------------')
         Cxy_results=self.coherence_scipy(st)
          
-        self.log.info(f'{_name}: Computing octave bands -------------------')
+        log.info(f'{_name}: Computing octave bands -------------------')
         fc,fl,fu=self.octave_bands()
 
-        self.log.info(f'{_name}: Plotting figures -------------------------')
+        log.info(f'{_name}: Plotting figures -------------------------')
         make_fig(Cxy_results,fc,self.ini.get('PLOT','cdist_base'),fls=fl,fus=fu,domean=self.ini.get('PLOT','domean'))
         
         return 1
@@ -131,7 +135,7 @@ class array_coherence(object):
 
             # Check that correlation shift doesn't start before trace time, greatly
             if (startcut0 - tr_i.stats.starttime) < -1*dt_i:
-                self.log.warn(f'{_name}: Startcut( {_idi}) less than trace starttime\n{startcut0} < {tr_i.stats.starttime}\ntry extending startsec time')
+                log.warn(f'{_name}: Startcut( {_idi}) less than trace starttime\n{startcut0} < {tr_i.stats.starttime}\ntry extending startsec time')
                 startcut0=tr_i.stats.starttime
 
             # Trim out the trace segment for Coherence measure
@@ -166,7 +170,7 @@ class array_coherence(object):
                 f, Cxy = coherence(data_i, data_j, fs=fs ,nperseg=nperseg, noverlap=noverlap, nfft=nfft)
                 plot_twosta(f,Cxy,_idi,_idj,m)
                 Cxy_results.append([m,a2,_idi,_idj,f,Cxy])
-                self.log.info(f'{_idi:>13s}->{_idj:>13s} D: {m:06.3f}km Az: {a2:03d} MaxC: {Cxy.max():04.2f} Nfrq: {len(f)}')
+                log.info(f'{_idi:>13s}->{_idj:>13s} D: {m:06.3f}km Az: {a2:03d} MaxC: {Cxy.max():04.2f} Nfrq: {len(f)}')
         return Cxy_results 
 
     def bform_tshifts(self,st_):
@@ -180,7 +184,7 @@ class array_coherence(object):
         try:
             st_.traces.sort(key=lambda x: x.stats.sac.dist, reverse=False)
         except Exception as e:
-            self.log.error(f'{_name} Sorting traces by distance failed. Is sac.dist set?')
+            log.error(f'{_name} Sorting traces by distance failed. Is sac.dist set?')
             pass
 
         tshift=0.0
@@ -192,9 +196,9 @@ class array_coherence(object):
                 # set shift to zero if doing xcorr
             else:
                 if not dt0 == tr.stats.delta:
-                    self.log.error(f'{_name} Sample mismatch!!!')
+                    log.error(f'{_name} Sample mismatch!!!')
                 if not len0 == tr.stats.npts:
-                    self.log.error(f'{_name} NPTS mismatch {sta0}:{len0} {tr.stats.station}:{tr.stats.npts}') 
+                    log.error(f'{_name} NPTS mismatch {sta0}:{len0} {tr.stats.station}:{tr.stats.npts}') 
 
                 # do xcorr or phase align
                 if self.ini.getboolean('TIME','xcorr'):
@@ -204,8 +208,8 @@ class array_coherence(object):
                     try:
                         tshift= 0.0 
                     except Exception as e:
-                        self.log.error(f'{_name}: Crash and burn\n\t{e}')
-            self.log.info(f'{_name}: {n:02d} {tr.id} = {tr.stats.sac.dist:0.3f} km tshift = {tshift:0.4f} sec')
+                        log.error(f'{_name}: Crash and burn\n\t{e}')
+            log.info(f'{_name}: {n:02d} {tr.id} = {tr.stats.sac.dist:0.3f} km tshift = {tshift:0.4f} sec')
             time_shifts[tr.id]=tshift
         return time_shifts 
 
@@ -268,14 +272,14 @@ class array_coherence(object):
             try:
                 parms[i]=self.ini.get('TIME',i)
             except Exception as e:
-                self.log.error(f'{_name}: problem with ini={i}, {e}')
+                log.error(f'{_name}: problem with ini={i}, {e}')
                 pass
 
         # deep copy
         st_=st.copy()
 
         if not parms['reffield']:
-            self.log.error(f'{_name}: No reffield, exiting')
+            log.error(f'{_name}: No reffield, exiting')
             return 0 
         else:
             reffield=parms['reffield'].lower()
@@ -342,12 +346,12 @@ class array_coherence(object):
             for i in sacfiles:
                 st+=read(i,type='SAC')
         except Exception as e:
-            self.log.error(f'{_name}: Problem reading {i} ... \n{e}')
-            self.log.error(f'{_name}: Continuing for better/worse')
+            log.error(f'{_name}: Problem reading {i} ... \n{e}')
+            log.error(f'{_name}: Continuing for better/worse')
             pass
             #sys.exit(0)
 
-        self.log.debug(f'{_name}: Read {st} ')
+        log.debug(f'{_name}: Read {st} ')
         return st
 
 
@@ -360,10 +364,10 @@ class array_coherence(object):
             if reffield in 'b':
                 zero_time=tr.stats.starttime
                 zero_offset=0.0
-            self.log.debug(f'{_name}: {tr.id} ref={reffield} zero_offset={zero_offset}')
-            self.log.debug(f'{_name}: {tr.id} starttime{tr.stats.starttime} zero_time={zero_time} reftime={zero_time+zero_offset}')
+            log.debug(f'{_name}: {tr.id} ref={reffield} zero_offset={zero_offset}')
+            log.debug(f'{_name}: {tr.id} starttime{tr.stats.starttime} zero_time={zero_time} reftime={zero_time+zero_offset}')
         except Exception as e:
-            self.log.error(f"Exiting, problem with reffield ({reffield}) for \n\t{tr}\n\t{e}")
+            log.error(f"Exiting, problem with reffield ({reffield}) for \n\t{tr}\n\t{e}")
             sys.exit(0)
         return zero_time,zero_offset
 
@@ -382,7 +386,7 @@ class array_coherence(object):
             try:
                 parms[i]=self.ini.get('SIG_PROC',i)
             except Exception as e:
-                self.log.error(f'{_name}: {i}: Error {e}')
+                log.error(f'{_name}: {i}: Error {e}')
                 pass
 
         # merge traces, in case there are small gaps
@@ -403,16 +407,16 @@ class array_coherence(object):
 
         # apply filter
         if hp and lp:
-            self.log.debug(f"{_name} Bandpass:{hp} to {lp} Hz")
+            log.debug(f"{_name} Bandpass:{hp} to {lp} Hz")
             st.filter('bandpass',freqmin=hp,freqmax=lp,corners=npoles,zerophase=passes)
         elif hp:
-            self.log.debug(f"{_name} Highpass: {hp} Hz")
+            log.debug(f"{_name} Highpass: {hp} Hz")
             st.filter('highpass',freq=hp,corners=npoles,zerophase=passes)
         elif lp:
-            self.log.debug(f"{_name} Lowpass: {lp} Hz")
+            log.debug(f"{_name} Lowpass: {lp} Hz")
             st.filter('highpass',freq=lp,corners=npoles,zerophase=passes)
         else:
-            self.log.debug(f'{_name} Not filtering')
+            log.debug(f'{_name} Not filtering')
 
         # normalize data to the power in the traces
         for tr in st:
@@ -441,7 +445,7 @@ class array_coherence(object):
         fc=fmin*2**(np.arange(0,bmax)*bw) # center freqs
         fl=fc*2**(-bw/2); # freq_low
         fu=fc*2**(+bw/2); # freq_high
-        self.log.info(f'{_name}: Octave nbands={len(fc)}\n{" ".join(str(x) for x in np.round(fc,4))} Hz')
+        log.info(f'{_name}: Octave nbands={len(fc)}\n{" ".join(str(x) for x in np.round(fc,4))} Hz')
 
         return fc,fl,fu
 
@@ -459,14 +463,14 @@ class array_coherence(object):
         if not ini_file:
             return None
         if not Path(ini_file).exists():
-            self.log.error(f"({_name}) {ini_file} doesn't exist")
+            log.error(f"({_name}) {ini_file} doesn't exist")
             return None
         try:
             ini = configparser.ConfigParser()
             ini.read(ini_file)
             return ini 
         except Exception as e:
-            self.log.error(f"{_name} {e}")
+            log.error(f"{_name} {e}")
             sys.exit(-1)
 
 
@@ -488,16 +492,16 @@ class array_coherence(object):
         '''
 
         if b >= arr[0] and e <= arr[-1]:
-            self.log.debug(f'{_name}: indx from {b} to {e}')
+            log.debug(f'{_name}: indx from {b} to {e}')
             _ind=np.nonzero((arr >= b) & (arr <= e))[0]
         elif b >= arr[0] and e >= arr[-1]:
-            self.log.debug(f'{_name}: indx from {b} to end')
+            log.debug(f'{_name}: indx from {b} to end')
             _ind=np.nonzero(arr >= b)[0];
         elif b <= arr[0] and e <= arr[-1]:
-            self.log.debug(f'{_name}: indx from {e} to begin')
+            log.debug(f'{_name}: indx from {e} to begin')
             _ind=np.nonzero(arr <= e)[0];
         else:
-            self.log.debug(f'{_name}: indx from all')
+            log.debug(f'{_name}: indx from all')
             _ind=np.nonzero(arr > -1)[0]
         return _ind
 
