@@ -6,9 +6,7 @@ from datetime import datetime
 import sys
 from array_coherence import array_coherence
 from array_coherence import template_config
-
-here = Path(__file__).resolve().parent
-exec(open(here / "version.py").read())
+from array_coherence import progname,__version__
 
 def main():
     '''
