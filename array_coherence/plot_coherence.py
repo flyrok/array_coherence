@@ -35,26 +35,29 @@ fontdict_title={'fontsize':12 }
 axis_tick_size=12
 
 
-def plot_wigs(st,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
+def plot_wigs(st,zero_off,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
     '''
     '''
+
 
     fig=plt.figure(figsize=(6,6),dpi=200)
     gs=fig.add_gridspec(1,1)
     ax=fig.add_subplot(gs[0])
 
     if beam:
-        yb=10*beam[0].data/np.sqrt(np.sum(beam[0].data** 2)) *.5
-        xb=beam[0].times()
+        yb=10*beam.data/np.sqrt(np.sum(beam.data** 2)) *.5
+        xb=beam.times()+zero_off
     
-
     for n,tr in enumerate(st):
 
         # segment for coherence and xcorr
-        tr_=tr.slice(starttime=tr.stats.coordinates.startcut,endtime=tr.stats.coordinates.endcut)
+        tr_=tr.copy()
+        tr_=tr_.slice(starttime=tr.stats.coordinates.startcut,endtime=tr.stats.coordinates.endcut)
+        
 
-        x_ = (tr_.stats.starttime - tr.stats.starttime) + tr_.times() + tr_.stats.coordinates.tshift
-        x = tr.times() + tr.stats.coordinates.tshift
+        x_ = (tr_.stats.starttime - tr.stats.starttime) + tr_.times()    + zero_off
+        x = tr.times() + zero_off
+
         inds=get_idx(x,x_[0],x_[-1])
         
         dist=tr.stats.sac.dist
@@ -132,11 +135,15 @@ def plot_twosta(f,Cxy,id1,id2,m):
     ax.xaxis.grid(b=True, which="major", **color)
     ax.set_xlabel('Frequency(Hz')
 
-    ax.set_ylim(0,1.)
+    ax.set_ylim(0.0,1.)
+#    ax.set_yscale('log')
     xmajor=0.25
     xminor=0.05
     ax.yaxis.set_major_locator(MultipleLocator(xmajor))
-    ax.yaxis.set_major_formatter(FormatStrFormatter('%0.1f'))
+#    formatter = FuncFormatter(lambda y, _: '{:.16g}'.format(y))
+#    ax.yaxis.set_major_formatter(formatter)
+
+    ax.yaxis.set_major_formatter(FormatStrFormatter('%0.1g'))
     ax.yaxis.set_minor_locator(MultipleLocator(xminor))
     ax.yaxis.grid(b=True, which="minor", **color)
     ax.yaxis.grid(b=True, which="major", **color)
@@ -161,7 +168,7 @@ def make_fig(ans,fcs,outfile,fls=None,fus=None,domean=True):
         gs.update(wspace=0.05, hspace=0.20)
 
 
-        outpng=f'{outfile}.{fc_actual:0.3f}.png'
+        outpng=f'{outfile}{fc:0.4f}.png'
         plt.savefig(outpng,bbox_inches='tight')
 
 
@@ -186,7 +193,11 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
     for i in ans:
         dists.append(i[0])
         azs.append(i[1])
-        Cxys.append(i[5][_idx])
+        if domean:
+            mn=np.mean(i[5][_idx0:_idx1])
+            Cxys.append(mn)
+        else:
+            Cxys.append(i[5][_idx])
 #ax1.scatter(x, data, c=wts, alpha=0.6, edgecolors='none', cmap=cmap)
 
     scat=ax.scatter(dists,Cxys,c=azs,alpha=0.6,linewidth=0.35,marker='o',s=50,edgecolor='black',cmap=cmap)
@@ -220,13 +231,13 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
     fig=ax.get_figure()
     ax1=fig.add_axes(newax)
     cbar=fig.colorbar(scat, cax=ax1)
-    cbar.set_label(f'Inter-sensor azimuth')
+    cbar.set_label(f'Interstation Azimuth $^\deg$')
     ax1.invert_yaxis()
     ax1.yaxis.set_major_locator(MultipleLocator(30))
 #
 #
 #        # Title
-    ax.set_title(f'Signal coherence at center frequency: {freqs[_idx]:0.3f} Hz',fontdict={'fontsize':8},loc='center')
+    ax.set_title(f'Signal coherence at center frequency: {freq:0.4f} Hz',fontdict={'fontsize':8},loc='center')
 #        ax.set_title(f'Ref:{true_start}',fontdict={'fontsize':8},loc='right')
 
     return  freqs[_idx]

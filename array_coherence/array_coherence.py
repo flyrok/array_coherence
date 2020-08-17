@@ -15,7 +15,7 @@ import configparser
 import numpy as np
 
 # Obspy
-from obspy import Stream,read,UTCDateTime
+from obspy import Stream,read,UTCDateTime,Trace
 from obspy.core.util import AttribDict
 from obspy.signal.cross_correlation  import correlate as xcorr 
 from obspy.signal.cross_correlation  import xcorr_max
@@ -26,47 +26,50 @@ from scipy.signal import coherence
 #from mtspec import mt_coherence as mtcoh
 
 from array_coherence.plot_coherence import plot_twosta,plot_wigs,make_fig
+from array_coherence.setup_log import setup_log
 
 
 class array_coherence(object):
     def __init__(self,sac_files,ini_file=None,outfile='tmp.png',debug=0):
         '''
         '''
-        self.log=self.setup_log(debug)
-
+        # Setup logging
+        self.log=setup_log(debug)
+        # load the ini configuration files
         self.ini=self.read_ini(ini_file)
+        # set sac files# 
         self.sac_files=sac_files
 
 
     def run_coherence_scipy(self):
         _name='run_coherence_scipy'
         '''
-        Main driver
+        Main driver to run coherence using SciPy's coherence function
+        And plot all the results.
         '''
        
-        self.log.info(f'{_name}:: Reading SAC files -----------------')
+        self.log.info(f'{_name}:: Reading SAC files       -----------------')
         st=self.read_sacfiles(self.sac_files)
 
         self.log.info(f'{_name}:: Doing signal processing -----------------')
         st=self.do_sigproc(st)
 
-        self.log.info(f'{_name}: Getting start/end timesd---------------')
-        st=self.reffield_trim(st)
+        self.log.info(f'{_name}: Trimming adn time aligning ---------------')
+        st,beam=self.reffield_trim(st)
 
-        self.log.info(f'{_name}: Computing time shifts to align traces')
-        st,beam=self.time_align(st)
 
         self.log.info(f'{_name}: Plotting record section ')
-        plot_wigs(st,beam,outfig=self.ini.get('PLOT','wffig'))
+        zero_off=float(self.ini.get('TIME','plot_startsec'))
+        plot_wigs(st,zero_off,beam=beam,outfig=self.ini.get('PLOT','wffig'))
         
-        self.log.info(f'{_name}: Computing Coherence ---------------------')
-        ans=self.coherence_scipy(st)
+        self.log.info(f'{_name}: Computing Coherence  ---------------------')
+        Cxy_results=self.coherence_scipy(st)
          
-        self.log.info(f'{_name}: Get some octave bands -------------------------')
+        self.log.info(f'{_name}: Computing octave bands -------------------')
         fc,fl,fu=self.octave_bands()
 
-        self.log.info(f'{_name}: Plotting figure -------------------------')
-        make_fig(ans,fc,self.ini.get('PLOT','cdist_base'),fls=fl,fus=fu,domean=self.ini.get('PLOT','domean'))
+        self.log.info(f'{_name}: Plotting figures -------------------------')
+        make_fig(Cxy_results,fc,self.ini.get('PLOT','cdist_base'),fls=fl,fus=fu,domean=self.ini.get('PLOT','domean'))
         
         return 1
 
@@ -89,10 +92,10 @@ class array_coherence(object):
         Compute the Coherence-squared between all traces in stream *st_*
 
         '''
-        ans=[]
-        st=st_.copy()
+        Cxy_results=[] # output results
+        st=st_.copy() # copy the Stream
 
-        # Check parameter file vars
+        # Check configuration file vars
         nperseg=self.ini.get('COHERENCE','nperseg')
         if nperseg == 'None':  
             nperseg=None
@@ -111,9 +114,11 @@ class array_coherence(object):
         else: 
             nfft=int(nfft)
 
+        # Loop over Stream
         for i,tr_i in enumerate(st):
             # Trace ID
             _idi=tr_i.id
+            # Sample rate
             dt_i=tr_i.stats.delta
 
             # Latitude/Longitude of tr_i
@@ -121,8 +126,8 @@ class array_coherence(object):
             loni=tr_i.stats.coordinates.longitude
 
             # Cut times of trace
-            startcut0=tr_i.stats.coordinates.startcut - tr_i.stats.coordinates.tshift
-            endcut0=tr_i.stats.coordinates.endcut - tr_i.stats.coordinates.tshift
+            startcut0=tr_i.stats.coordinates.startcut 
+            endcut0=tr_i.stats.coordinates.endcut 
 
             # Check that correlation shift doesn't start before trace time, greatly
             if (startcut0 - tr_i.stats.starttime) < -1*dt_i:
@@ -131,9 +136,10 @@ class array_coherence(object):
 
             # Trim out the trace segment for Coherence measure
             tr_i.trim(starttime=startcut0,endtime=endcut0)
+            tr_i.detrend(type='linear')
+            tr_i.taper(0.05)
 
-            if not nfft: nfft=tr_i.stats.npts
-        
+            if not nfft: nfft=2**nextpow2(tr_i.stats.npts)
             data_i=self.pad(tr_i.data,nfft)
             st.remove(tr_i)
 
@@ -149,133 +155,59 @@ class array_coherence(object):
                 a2=self.ang180(a0) # interstation azimuth (0-180)
 
 
-                startcut1=tr_j.stats.coordinates.startcut - tr_j.stats.coordinates.tshift
-                endcut1=tr_j.stats.coordinates.endcut - tr_j.stats.coordinates.tshift
+                startcut1=tr_j.stats.coordinates.startcut 
+                endcut1=tr_j.stats.coordinates.endcut 
                 tr_j.trim(starttime=startcut1,endtime=endcut1)
+                tr_j.detrend(type='linear')
+                tr_j.taper(0.05)
                 data_j=self.pad(tr_j.data,nfft)
+                fs=tr_j.stats.sampling_rate
                 
-                f, Cxy = coherence(data_i, data_j,fs=tr_j.stats.sampling_rate,nperseg=nperseg,noverlap=noverlap,nfft=nfft)
+                f, Cxy = coherence(data_i, data_j, fs=fs ,nperseg=nperseg, noverlap=noverlap, nfft=nfft)
                 plot_twosta(f,Cxy,_idi,_idj,m)
-                ans.append([m,a2,_idi,_idj,f,Cxy])
-#                print(m,Cxy[0:5],f[0:5])
-                self.log.info(f'Sta1:{_idi} Sta2:{_idj} Dist:{m:0.3f}km AZ12:{a0:0.1f} AZ21:{a1:0.1f} AZ_180:{a2:0.1f}')
-        return ans
+                Cxy_results.append([m,a2,_idi,_idj,f,Cxy])
+                self.log.info(f'{_idi:>13s}->{_idj:>13s} D: {m:06.3f}km Az: {a2:03d} MaxC: {Cxy.max():04.2f} Nfrq: {len(f)}')
+        return Cxy_results 
 
-    def beam_form_xcorr(self,st):
-        _name='beam_form_xcorr'
+    def bform_tshifts(self,st_):
+        _name='bform_tshifts'
         '''
-        Beam form a stream of traces
+        Get the time shifts to time align traces
+        for stacking, plotting, coherence 
         '''
-
+        time_shifts={}
         # sort wfs by distance
         try:
-            st.traces.sort(key=lambda x: x.stats.sac.dist)
+            st_.traces.sort(key=lambda x: x.stats.sac.dist, reverse=False)
         except Exception as e:
             self.log.error(f'{_name} Sorting traces by distance failed. Is sac.dist set?')
             pass
 
-        st_=st.copy()
+        tshift=0.0
         for n,tr in enumerate(st_):
-            pre_npts=tr.stats.npts
-            
-            tr.trim(starttime=tr.stats.coordinates.startcut,endtime=tr.stats.coordinates.endcut)
-            
-            tr.taper(0.05)
-            post_npts=tr.stats.npts
-            self.log.debug(f'{_name} pre_npts:{pre_npts} post_npts:{post_npts}')
-            if n > 0:
+            if n == 0:
+                dt0=tr.stats.delta
+                len0=tr.stats.npts
+                mdata=tr.data
+                # set shift to zero if doing xcorr
+            else:
                 if not dt0 == tr.stats.delta:
                     self.log.error(f'{_name} Sample mismatch!!!')
                 if not len0 == tr.stats.npts:
                     self.log.error(f'{_name} NPTS mismatch {sta0}:{len0} {tr.stats.station}:{tr.stats.npts}') 
+
+                # do xcorr or phase align
                 if self.ini.getboolean('TIME','xcorr'):
                     nshift=self.xcorr_fft(mdata,tr.data)
                     tshift=nshift*dt0
                 else:
-                    phs=self.ini.get('TIME','treffield')
-                    tshift=float(st[n].stats.sac[phs])
-
-#                st[n].stats.starttime+=(tr0_tshift - tshift)
-                self.log.debug(f'{_name} Time between {sta0}->{tr.stats.station} = {tshift:0.4f}')
-            else:
-                tr0=tr
-                dt0=tr.stats.delta
-                sta0=tr.stats.station
-                len0=tr.stats.npts
-                mdata=tr.data
-                if not self.ini.getboolean('TIME','xcorr'):
-                    phs=self.ini.get('TIME','treffield')
-                    tr0_tshift=float(tr.stats.sac[phs])
-                else:
-                    tr0_tshift=0.0
-                    nshift=0
-        st.stack(time_tol=2,npts_tol=50)
-        for tr in st:
-            startcut=float(self.ini.get('TIME','startsec'))
-            tr.stats.coordinates = AttribDict({
-                'startcut':0,
-                'endcut':0,
-                'nshift':0,
-                'tshift':0.0})
-
-        # need to better understand obspy.stack. Is this
-        # doing what i want?
-        return st.stack()
-
-    def time_align(self,st):
-        _name='time_align'
-        '''
-        Ummm.  This is confusing
-        '''
-
-        # make a beam
-        st_=st.copy()
-        beam=self.beam_form_xcorr(st_)
-        t=beam[0].times() + float(self.ini.get('TIME','plot_startsec'))
-        s=float(self.ini.get('TIME','startsec'))
-        e=float(self.ini.get('TIME','startsec'))+float(self.ini.get('TIME','duration'))
-        inds=self.get_idx(t,s,e)
-        bdata=beam[0].data[inds[0]:inds[-1]]
-        # sort wfs by distance
-        try:
-            st.traces.sort(key=lambda x: x.stats.sac.dist)
-        except Exception as e:
-            self.log.error(f'{_name} Sorting traces by distance failed. Is sac.dist set?')
-            pass
-
-        # loop through traces and xcorr with beam
-        st_=st.copy()
-        for n,tr in enumerate(st_):
-
-            pre_npts=tr.stats.npts
-            tr.trim(starttime=tr.stats.coordinates.startcut,endtime=tr.stats.coordinates.endcut)
-            
-            tr.taper(0.05)
-
-            post_npts=tr.stats.npts
-            self.log.debug(f'{_name} {tr.id} data_len:{pre_npts} xcorr_len:{post_npts}')
-            if n > 0: 
-                if not dt0 == tr.stats.delta:
-                    self.log.error(f'{_name} Sample mismatch {sta0} vs {tr.stats.station}!!!')
-                if not len0 == tr.stats.npts:
-                    self.log.error(f'{_name} NPTS mismatch {sta0}:{len0} {tr.stats.station}:{tr.stats.npts}') 
-
-                # Do xcorr
-                nshift=int(self.xcorr_fft(bdata,tr.data))
-                tshift=nshift*dt0
-                self.log.debug(f'{_name} {sta0}->{tr.stats.station} xcorr_shift={tshift:0.4f}')
-            else:
-                tr0=tr
-                dt0=tr.stats.delta
-                sta0=tr.stats.station
-                len0=tr.stats.npts
-                mdata=tr.data
-                tshift=0.0
-                nshift=0
-
-            st[n].stats.coordinates['tshift']=tshift
-            st[n].stats.coordinates['nshift']=nshift
-        return st,beam
+                    try:
+                        tshift= 0.0 
+                    except Exception as e:
+                        self.log.error(f'{_name}: Crash and burn\n\t{e}')
+            self.log.info(f'{_name}: {n:02d} {tr.id} = {tr.stats.sac.dist:0.3f} km tshift = {tshift:0.4f} sec')
+            time_shifts[tr.id]=tshift
+        return time_shifts 
 
     def pad(self,data,n):
         _name='pad'
@@ -322,78 +254,88 @@ class array_coherence(object):
         '''
         SAC time is confusing
         return the epoch start/end time of the desired window.
-        This windows the data to:
-        tstart=reffield + startec
-        tend=tstart+duration
+        This function windows the data to:
+            tstart=reffield + startec
+            tend=tstart+duration
+
+        input parameters read from the ini file
         '''
-        parms={'reffield':'o','startsec':0.0,'duration':1.0,'plot_startsec':0.0,'plot_dursec':0.0}
-        for i in parms:
+        parms={'reffield':'b','startsec':0.0,'duration':1.0,'plot_startsec':0.0,'plot_dursec':0.0}
+
+        # loop through parms, and lookup each parms.key in the ini file
+        # grab vale if it exists, else use defaults
+        for i in parms: 
             try:
                 parms[i]=self.ini.get('TIME',i)
             except Exception as e:
-                self.log.error(f'{_name} problem with ini={i}, {e}')
+                self.log.error(f'{_name}: problem with ini={i}, {e}')
                 pass
-        # trim the waveforms if required
-        new_st=Stream()
+
+        # deep copy
+        st_=st.copy()
+
         if not parms['reffield']:
-            self.log.debug(f'{_name}: No reffield, skipping trim')
-            return 1 
+            self.log.error(f'{_name}: No reffield, exiting')
+            return 0 
         else:
             reffield=parms['reffield'].lower()
 
-        for tr in st: 
-            try:
-                rcut=tr.stats.sac[reffield]  
-                b=tr.stats.sac['b'] # referenced to starttime 
-                # If the reffield is not the sac O field, then it is a pick referenced
-                # to O time. 
-                if reffield in 'a' or reffield in 't0' or reffield in 't1':
-                    o=tr.stats.sac['o']
-                else:
-                    o=0.0
-                self.log.debug(f'{_name}: b={b:0.5f} o={o:0.5f} reftime:{rcut:0.5f}')
-            except Exception as e:
-                self.log.error(f"Exiting, problem with reffield ({reffield}) for \n\t{tr}\n\t{e}")
-                sys.exit(0)
-
-            # Trime traces to plot windows
-            plot_startsec=float(parms['plot_startsec'])
-            plot_dursec=float(parms['plot_dursec'])
-            starttime=tr.stats.starttime
-            #t0=starttime + ((o - b) + rcut + plot_startsec)
-            t0=starttime  + rcut + plot_startsec - b
-            t1=t0+plot_dursec
-            tr.trim(starttime=t0,endtime=t1)
-
-            # Figure out coherence window
-            startsec=float(parms['startsec'])
-            duration=float(parms['duration'])
-            shift = (o - b) + rcut + startsec
-            self.log.debug(f'{_name}: Cutting {tr.stats.starttime} by {shift} seconds')
-            tstart=starttime + shift
-            if not duration:
-                tend=tr.stats.endtime
-            else:
-                tend=tstart+duration
-
+        # get time_shifts -----
+        for tr_ in st_: 
+            # For each trace, compute
+            # 1. SAC's zero_time in absolute time
+            # 2. the INI's reference field time, which is relative 
+            #    to zero_time
+            zero_time, zero_offset = self.get_zerotime(tr_,reffield)
+            tcoh_start= zero_time + zero_offset + float(parms['startsec'])
+            tcoh_end=tcoh_start+float(parms['duration'])
+            tr_.trim(starttime=tcoh_start,endtime=tcoh_end)
+            tr_.detrend(type='linear')
+            
             # attach some important values to sac attribute dict.
+
+        time_shifts=self.bform_tshifts(st_)
+
+        n=0
+        for key,val in time_shifts.items():
+            tr=st.select(id=key)[0]
+            zero_time, zero_offset = self.get_zerotime(tr,reffield)
+
+            # coherence measurement bounds
+            tbase=zero_time + zero_offset + val
+            tcoh_start= tbase + float(parms['startsec'])
+            tcoh_end= tcoh_start+float(parms['duration'])
+
+            # cut/plot bounds
+            tstart= tbase + float(parms['plot_startsec'])
+            tend=tstart+float(parms['plot_dursec'])
+            tr.trim(starttime=tstart,endtime=tend)
+
+            if n == 0:
+                beam=tr.copy()
+                bdata=tr.data
+                beam.stats.station='beam'
+                n+=1
+            else:
+                beam.data+=tr.data
+                n+=1
             tr.stats.coordinates = AttribDict({
                 'latitude': tr.stats.sac.stla,
                 'elevation': tr.stats.sac.stel,
                 'longitude':tr.stats.sac.stlo,
-                'startcut':tstart,
-                'endcut':tend,
-                'nshift':0,
-                'tshift':0.0})
+                'startcut':tcoh_start,
+                'endcut':tcoh_end})
 
-            new_st+=tr
-        new_st.sort(keys=['starttime'],reverse=False)
-        self.log.info(f'{_name}: cut st {new_st}')
-        return new_st
+        beam.data/=len(st)
+
+        return st,beam
 
     def read_sacfiles(self,sacfiles):
         _name=f"read_sacfiles"
         '''
+        Read in a list of sac files
+        input: list of sac files
+        out: ObsPy Stream object
         '''
         st=Stream()
         try:
@@ -401,11 +343,29 @@ class array_coherence(object):
                 st+=read(i,type='SAC')
         except Exception as e:
             self.log.error(f'{_name}: Problem reading {i} ... \n{e}')
-            sys.exit(0)
+            self.log.error(f'{_name}: Continuing for better/worse')
+            pass
+            #sys.exit(0)
 
         self.log.debug(f'{_name}: Read {st} ')
         return st
 
+
+    def get_zerotime(self,tr,reffield):
+        _name='get_zerotime'
+        try:
+            if reffield in 'a' or reffield in 'o' or reffield in 't0' or reffield in 't1':
+                zero_time=tr.stats.starttime - tr.stats.sac['b'] # sac zero time
+                zero_offset=tr.stats.sac[reffield]
+            if reffield in 'b':
+                zero_time=tr.stats.starttime
+                zero_offset=0.0
+            self.log.debug(f'{_name}: {tr.id} ref={reffield} zero_offset={zero_offset}')
+            self.log.debug(f'{_name}: {tr.id} starttime{tr.stats.starttime} zero_time={zero_time} reftime={zero_time+zero_offset}')
+        except Exception as e:
+            self.log.error(f"Exiting, problem with reffield ({reffield}) for \n\t{tr}\n\t{e}")
+            sys.exit(0)
+        return zero_time,zero_offset
 
 
     def do_sigproc(self,st):
@@ -470,7 +430,7 @@ class array_coherence(object):
         bw=1/3
         dt=1/samps_per_sec
         '''
-        
+       
         fmin=self.ini.getfloat('PLOT','fmin')
         fmax=self.ini.getfloat('PLOT','fmax')
         bw=self.ini.getfloat('PLOT','bw')
@@ -481,7 +441,7 @@ class array_coherence(object):
         fc=fmin*2**(np.arange(0,bmax)*bw) # center freqs
         fl=fc*2**(-bw/2); # freq_low
         fu=fc*2**(+bw/2); # freq_high
-        self.log.info(f'{_name}: Octave nbands={len(fc)} ')
+        self.log.info(f'{_name}: Octave nbands={len(fc)}\n{" ".join(str(x) for x in np.round(fc,4))} Hz')
 
         return fc,fl,fu
 
@@ -544,33 +504,8 @@ class array_coherence(object):
 
     def nextpow2(self,number): # 
         '''
-            return the 
-        '''
+            returns (n) the next power of two, ie. 2**n
 
+        '''
         return np.ceil(np.log2(number))
     
-
-    def setup_log(self,debug):
-
-        ''' Helper function to set up logging
-            at the right debug level
-        '''
-        # INFO,DEBUG,WARN
-        if debug == 0:
-            loglevel="WARN"
-        elif debug == 1:
-            loglevel="INFO"
-        else:
-            loglevel="DEBUG"
-
-        logging.basicConfig(level=loglevel,
-            datefmt="%Y-%j %H:%M:%S", format="%(asctime)s-%(levelname)s %(message)s")
-        log=logging.getLogger(__name__)
-        ch = logging.StreamHandler()
-        ch.setFormatter(logging.Formatter(datefmt="%Y-%j %H:%M:%S",fmt="%(levelname)s %(asctime)s %(message)s"))
-        log.addHandler(ch)
-        log.setLevel(loglevel)
-        print(f' {__name__} loglevel set to {loglevel}:{log.level}')
-        logging.getLogger('matplotlib.font_manager').disabled = True
-        return log
-
