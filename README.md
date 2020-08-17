@@ -2,18 +2,20 @@
 Compute the Coherence Squared between a suite of SAC files.  
 
 
-
-
 ### Purpose/Scope ###
-This script computes the coherence of an between signal between a set of 
-seismic array elements. The data is expected to be in SAC format, and several 
-header vales are required to be set. The values are, at minimum,
-stla,stlo,evla,evlo
+This script computes the coherence of an event signal between a set of 
+seismic array elements. The data are expected to be in SAC format, and several 
+header vales need to be set. The values are, at minimum,
+*stla,stlo,evla,evlo*, and some time reference *(e.g. a,t0,o)*.  Although
+the header value (*b*) may also be used. 
 
-The script makes a series of plots:  
-1. record section sorted by distance of all the data  
-2. The Two-Station coherence as a function of frequency  
-3. The Coherence as a function of interstation distance as specific  
+This version only usesscipy.coherence, which uses Welch's method to estimate
+the spectra. The multitaper estimation method is currently turned off. 
+
+The script makes a suite of plots:  
+1. A record section of each time series sorted by distance, along with the array beam  
+2. The Two-Station coherence as a function of frequency for each station pair  
+3. The Coherence as a function of interstation distance at specific  
    frequency values.
 
 ## Install ##
@@ -36,9 +38,9 @@ obspy (https://github.com/obspy/obspy/wiki)
 
 ## Usage/Examples ##
 The main driver is a INI configuration files. Use the `-h` option to
-print an example. It is recommend to run the script with the `-v` to
-understand what it is doing. It is very verbose. Turn on debugging `-vv`
-if things go wrong to get hints of the possible issue.
+print an example. It is recommended to run the script with the `-v` to
+understand some of the output. It is very verbose. Turn on debugging 
+with `-vv` if things go wrong. 
 
 To see help:  
 `array_coherence --help`    
