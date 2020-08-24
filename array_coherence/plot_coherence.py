@@ -170,6 +170,7 @@ def make_fig(ans,fcs,outfile,fls=None,fus=None,domean=True):
 
         outpng=f'{outfile}{fc:0.4f}.png'
         plt.savefig(outpng,bbox_inches='tight')
+        plt.close()
 
 
 def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
