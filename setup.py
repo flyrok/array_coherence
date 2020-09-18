@@ -15,7 +15,7 @@ with open(readme, encoding='utf-8') as f:
     long_description = f.read()
 
 PROJECT_NAME="array_coherence"
-exec(open(here / "array_coherence/version.py").read())
+exec(open(here / "array_coherence/__init__.py").read())
 
 VERSION=__version__
 DESCRIPTION="Search and pull station metadata from FDSN server"
