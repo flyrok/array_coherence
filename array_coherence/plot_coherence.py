@@ -48,6 +48,7 @@ def plot_wigs(st,zero_off,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
         yb=10*beam.data/np.sqrt(np.sum(beam.data** 2)) *.5
         xb=beam.times()+zero_off
     
+    st.traces.sort(key=lambda x: x.stats.sac.dist, reverse=False)
     for n,tr in enumerate(st):
 
         # segment for coherence and xcorr
@@ -168,7 +169,7 @@ def make_fig(ans,fcs,outfile,fls=None,fus=None,domean=True):
         gs.update(wspace=0.05, hspace=0.20)
 
 
-        outpng=f'{outfile}{fc:0.4f}.png'
+        outpng=f'{outfile}{fc:07.4f}.png'
         plt.savefig(outpng,bbox_inches='tight')
 
 
@@ -215,7 +216,7 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
 #        ax.tick_params(labelbottom=False)    
 #    
 #        # yaxis stuff
-    ax.set_ylim(0,1.1)
+    ax.set_ylim(0,1.05)
     ymajor,yminor=tick_stride(0,1,base=.1,prec=2)
     ax.yaxis.set_major_locator(MultipleLocator(ymajor))
     ax.yaxis.set_minor_locator(MultipleLocator(yminor))
