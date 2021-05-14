@@ -33,6 +33,7 @@ INSTALL_REQUIRES = [
     'numpy>=1.6.1',
     'matplotlib>=1.1.0',
     'obspy',
+    'scipy',
     ]
 
 setup(

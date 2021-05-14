@@ -23,6 +23,8 @@ The script makes a suite of plots:
 Clone source package  
 `git clone http://github.com/flyrok/array_coherence`
 
+Or, unpack the zip file ...  
+
 Install with pip after download  
 `pip install .`
 
@@ -32,22 +34,30 @@ Install in editable mode
 
 ## Python Dependencies ##
 
-python>=3.6 (script uses f-strings)  
+The following dependencies are required. The `setup.py` will try to install them.  
+
+python>=3.6 (script uses f-strings)    
 obspy (https://github.com/obspy/obspy/wiki)  
+numpy  
+scipy  
+matplotlib  
+
 
 
 ## Usage/Examples ##
 The main driver is a INI configuration file. Use the `-h` option to
-print an example. It is recommended to run the script with the `-v` to
-understand some of the output. It is very verbose. Turn on debugging 
-with `-vv` if things go wrong. 
+print an example.  The INI file is editable within the UI.
 
-To see help:  
-`array_coherence -h`    
+It is recommended to run the script with the `-v` to
+understand some of the output. It is very verbose. Turn on debugging 
+with `-vv`, if things go wrong. 
+
+To see help and an example INI file:  
+`array_fk -h`    
 
 To see version:  
-`array_coherence --version`    
+`array_fk --version`    
 
 To run it:  
-`array_coherence -f *.sac -i example.ini
+`array_fk -f *.sac   
 

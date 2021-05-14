@@ -1,0 +1,4 @@
+include README.*
+include array_coherence/README.md
+include array_coherence/README.pdf
+include doc/*

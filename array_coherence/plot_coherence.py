@@ -25,14 +25,18 @@ from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
 from matplotlib.ticker import FuncFormatter
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.dates as mdates
+import matplotlib.patches as patches
+from matplotlib import cm
 
 from matplotlib.colorbar import ColorbarBase
 from matplotlib.colors import Normalize
+from matplotlib.collections import LineCollection
+from matplotlib.colors import ListedColormap, BoundaryNorm
 
 color={"color": "0.9"}
-fontdict_axis={'fontsize':12 }
-fontdict_title={'fontsize':12 }
-axis_tick_size=12
+fontdict_axis={'fontsize':14 }
+fontdict_title={'fontsize':14 }
+axis_tick_size=14
 
 
 def plot_wigs(st,zero_off,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
@@ -120,13 +124,30 @@ def plot_wigs(st,zero_off,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
 
 
 def plot_twosta(f,Cxy,id1,id2,m):
-    fig=plt.figure(figsize=(6,6),dpi=200)
+    fig=plt.figure(figsize=(6,5),dpi=200)
     gs=fig.add_gridspec(1,1)
     ax=fig.add_subplot(gs[0])
-    ax.scatter(f,Cxy,marker='o',s=10,linewidth=.1,c='red',edgecolor='black')
-    ax.plot(f,Cxy,linewidth=2,c='midnightblue',alpha=.6)
+    xmin=f[0]
+    xmax=f[-1]
+    ymin=0
+    ymax=1
+    # high coherence region
+    r=(255/255,0,25/255,0.2)
+    o=(255/255,136/255,0,0.2)
+    g=(28/255,255/255,0)
 
-    ax.set_xlim(f[0],f[-1])
+    #points = np.array([f, Cxy]).T.reshape(-1, 1, 2)
+    #segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    #norm=Normalize(0,1)
+    #lc = LineCollection(segments, cmap='rainbow_r',norm=norm)
+    #lc.set_array(Cxy)
+    #lc.set_linewidth(4)
+    #line = ax.add_collection(lc)
+    ax.plot(f,Cxy,linewidth=2.5,c='gray',alpha=.3)
+    #ax.scatter(f,Cxy,marker='o',s=75,linewidth=.1,c=cm.RdYlGn(Cxy),edgecolor='k',alpha=1)
+    ax.scatter(f,Cxy,marker='o',s=75,linewidth=.1,c=cm.RdYlGn(Cxy),edgecolor='k')
+
+    ax.set_xlim(xmin,xmax)
     xmajor=5
     xminor=1
     ax.xaxis.set_major_locator(MultipleLocator(xmajor))
@@ -134,10 +155,9 @@ def plot_twosta(f,Cxy,id1,id2,m):
     ax.xaxis.set_minor_locator(MultipleLocator(xminor))
     ax.xaxis.grid(b=True, which="minor", **color)
     ax.xaxis.grid(b=True, which="major", **color)
-    ax.set_xlabel('Frequency(Hz')
+    ax.set_xlabel('Frequency(Hz',fontdict=fontdict_axis)
 
-    ax.set_ylim(0.0,1.)
-#    ax.set_yscale('log')
+    ax.set_ylim(ymin,ymax)
     xmajor=0.25
     xminor=0.05
     ax.yaxis.set_major_locator(MultipleLocator(xmajor))
@@ -148,8 +168,9 @@ def plot_twosta(f,Cxy,id1,id2,m):
     ax.yaxis.set_minor_locator(MultipleLocator(xminor))
     ax.yaxis.grid(b=True, which="minor", **color)
     ax.yaxis.grid(b=True, which="major", **color)
-    ax.set_ylabel('Coherence')
-    ax.set_title(f'Coherence between {id1} and {id2} ({m:0.2} km)',fontdict={'fontsize':8},loc='left')
+    ax.set_ylabel('Coherence',fontdict=fontdict_axis)
+    ax.set_title(f'Coherence {id1} and {id2}, ({m:0.2} km)',fontdict={'fontsize':12},loc='left')
+    ax.tick_params(labelleft=True,labelsize=axis_tick_size) 
 
     outfile=f'cxy_{id1}_{id2}.png'
     plt.savefig(outfile,bbox_inches='tight')
@@ -159,7 +180,7 @@ def make_fig(ans,fcs,outfile,fls=None,fus=None,domean=True):
     _name='make_fig'
 
     for fc,fl,fu in zip(fcs,fls,fus):
-        fig = plt.figure(figsize=(8, 6),dpi=200)
+        fig = plt.figure(figsize=(8, 5),dpi=200)
 
         gs=fig.add_gridspec(1,1)
         ax=fig.add_subplot(gs[0])
@@ -202,7 +223,9 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
             Cxys.append(i[5][_idx])
 #ax1.scatter(x, data, c=wts, alpha=0.6, edgecolors='none', cmap=cmap)
 
-    scat=ax.scatter(dists,Cxys,c=azs,alpha=0.6,linewidth=0.35,marker='o',s=50,edgecolor='black',cmap=cmap)
+    #scat=ax.scatter(dists,Cxys,c=azs,alpha=0.6,linewidth=0.35,marker='o',s=50,edgecolor='black',cmap=cmap)
+#    ax.scatter(f,Cxy,marker='o',s=70,linewidth=.1,c=cm.RdYlGn(Cxy),edgecolor='k',alpha=.9)
+    scat=ax.scatter(dists,Cxys,c=cm.RdYlGn(Cxys),alpha=0.98,linewidth=0.35,marker='o',s=70,edgecolor='black')
 
 
     # xaxis stuff
@@ -213,7 +236,7 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
     ax.xaxis.set_minor_locator(MultipleLocator(xminor))
     ax.xaxis.grid(b=True, which="minor", **color)
     ax.xaxis.grid(b=True, which="major", **color)
-    ax.set_xlabel('Interstation Distance (km)')
+    ax.set_xlabel('Intra-station Distance (km)',fontdict=fontdict_axis)
 #        ax.tick_params(labelbottom=False)    
 #    
 #        # yaxis stuff
@@ -223,24 +246,25 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
     ax.yaxis.set_minor_locator(MultipleLocator(yminor))
     ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
     ax.yaxis.grid(b=True, which="major", **color)
-    ax.set_ylabel(f'Coherence')
+    ax.set_ylabel(f'Coherence',fontdict=fontdict_axis)
 
 
     # plot colorbar
-    scat.set_cmap(cmap)
+    scat.set_cmap('RdYlGn')
     pos1 = ax.get_position()
     newax=[pos1.x0+pos1.width+.01, pos1.y0, 0.01,pos1.height]
     fig=ax.get_figure()
     ax1=fig.add_axes(newax)
     cbar=fig.colorbar(scat, cax=ax1)
-    cbar.set_label(f'Interstation Azimuth $^\deg$')
-    ax1.invert_yaxis()
+    #cbar.set_label(r'Intra-station Azimuth $^\deg$',fontdict=fontdict_axis)
+    cbar.set_label(r'Coherence',fontdict=fontdict_axis)
+#    ax1.invert_yaxis()
     ax1.yaxis.set_major_locator(MultipleLocator(30))
+    ax1.yaxis.set_major_locator(MultipleLocator(.25))
 #
 #
 #        # Title
-    ax.set_title(f'Signal coherence at center frequency: {freq:0.4f} Hz',fontdict={'fontsize':8},loc='center')
-#        ax.set_title(f'Ref:{true_start}',fontdict={'fontsize':8},loc='right')
+    ax.set_title(f'Coherence, center frequency: {freq:0.4f} Hz',fontdict={'fontsize':12},loc='left')
 
     return  freqs[_idx]
 
