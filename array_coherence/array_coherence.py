@@ -28,22 +28,17 @@ from scipy.signal import coherence
 from array_coherence.plot_coherence import plot_twosta,plot_wigs,make_fig
 from array_coherence.setup_log import setup_log
 
-
-debug=0
-log=setup_log(debug)
+log=logging.getLogger(__name__)
 
 class array_coherence(object):
-    def __init__(self,sac_files,ini_file=None,outfile='tmp.png',debug=0):
+    def __init__(self,sac_files,ini_file=None,outfile='tmp.png',debug=None):
         '''
         '''
-        # Set debug level
-        setup_log(debug)
         
         # load the ini configuration files
         self.ini=self.read_ini(ini_file)
         # set sac files# 
         self.sac_files=sac_files
-
 
     def run_coherence_scipy(self):
         _name='run_coherence_scipy'
@@ -414,7 +409,7 @@ class array_coherence(object):
             st.filter('highpass',freq=hp,corners=npoles,zerophase=passes)
         elif lp:
             log.debug(f"{_name} Lowpass: {lp} Hz")
-            st.filter('highpass',freq=lp,corners=npoles,zerophase=passes)
+            st.filter('lowpass',freq=lp,corners=npoles,zerophase=passes)
         else:
             log.debug(f'{_name} Not filtering')
 
