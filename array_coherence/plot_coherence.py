@@ -40,9 +40,9 @@ axis_tick_size=14
 
 
 def plot_wigs(st,zero_off,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
+    _name='plot_wigs'
     '''
     '''
-
 
     fig=plt.figure(figsize=(6,6),dpi=200)
     gs=fig.add_gridspec(1,1)
@@ -53,14 +53,13 @@ def plot_wigs(st,zero_off,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
         xb=beam.times()+zero_off
     
     st.traces.sort(key=lambda x: x.stats.sac.dist, reverse=False)
-    for n,tr in enumerate(st):
 
+    for n,tr in enumerate(st):
         # segment for coherence and xcorr
         tr_=tr.copy()
         tr_=tr_.slice(starttime=tr.stats.coordinates.startcut,endtime=tr.stats.coordinates.endcut)
         
-
-        x_ = (tr_.stats.starttime - tr.stats.starttime) + tr_.times()    + zero_off
+        x_ = (tr_.stats.starttime - tr.stats.starttime) + tr_.times() + zero_off
         x = tr.times() + zero_off
 
         inds=get_idx(x,x_[0],x_[-1])
@@ -84,10 +83,9 @@ def plot_wigs(st,zero_off,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
 
         ax.plot(x,y,linewidth=0.25,color='midnightblue')
         ax.plot(x[inds],y[inds],linewidth=0.25,color='red')
-#        ax.text(x=xmin, y=n,s=f'{tr_.id}' , ha="right",fontsize=10)
+
         ax.annotate(f'{tr_.id}', xy=(xmin,n), xytext=(-5, 0), textcoords="offset points", ha='right', va='center')
         ax.annotate(f'{tr_.stats.sac.dist:0.2f} km', xy=(xmax,n), xytext=(+5, 0), textcoords="offset points", ha='left', va='center')
-
 
         if env:
             ax.plot(x,yenv,linewidth=0.5,linestyle='--',color='red')
@@ -98,8 +96,6 @@ def plot_wigs(st,zero_off,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
         ax.plot(xb,yb+n+1,linewidth=0.25,color='black')
         ax.annotate(f'beam', xy=(xmin,n+1), xytext=(-5, 0), textcoords="offset points", ha='right', va='center')
 
-
-    
     ax.set_xlim(xmin,xmax)
     xmajor=5
     xminor=1
@@ -121,9 +117,11 @@ def plot_wigs(st,zero_off,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
 
     fig.savefig(outfig,format='png',bbox_inches="tight")
 
-
-
 def plot_twosta(f,Cxy,id1,id2,m):
+    _name='plot_twosta'
+    '''
+    '''
+
     fig=plt.figure(figsize=(6,5),dpi=200)
     gs=fig.add_gridspec(1,1)
     ax=fig.add_subplot(gs[0])
@@ -144,7 +142,7 @@ def plot_twosta(f,Cxy,id1,id2,m):
     #lc.set_linewidth(4)
     #line = ax.add_collection(lc)
     ax.plot(f,Cxy,linewidth=2.5,c='gray',alpha=.3)
-    #ax.scatter(f,Cxy,marker='o',s=75,linewidth=.1,c=cm.RdYlGn(Cxy),edgecolor='k',alpha=1)
+    
     ax.scatter(f,Cxy,marker='o',s=75,linewidth=.1,c=cm.RdYlGn(Cxy),edgecolor='k')
 
     ax.set_xlim(xmin,xmax)
@@ -178,30 +176,56 @@ def plot_twosta(f,Cxy,id1,id2,m):
 
 def make_fig(ans,fcs,outfile,fls=None,fus=None,domean=True):
     _name='make_fig'
+    """
+    ans=array coherency results as an array of arrays
+        outer array, entry for each station pair
+        inner array, results for that station pair, where array elements are
+           element 0 = interstation distance distance,
+           element 1 = interstation azimuth
+           element 2 = id 1st station
+           element 3 = id 2nd station
+           element 4 =  freq vector
+           element 5 = coherency results
+    fcs = array of center frequencys
+    outfile = plot title basename
+    fls = array of freq lower limit for each center frequency
+    flu = array of freq upper limit for each center frequency
+    domean = boolean, if true average coherency results for each center freq, 
+        otherwise take value closets to center freq
+    """
 
     for fc,fl,fu in zip(fcs,fls,fus):
+        
         fig = plt.figure(figsize=(8, 5),dpi=200)
+        gs=fig.add_gridspec(1,2)
+        ax0=fig.add_subplot(gs[0])
+        ax1=fig.add_subplot(gs[1])
 
-        gs=fig.add_gridspec(1,1)
-        ax=fig.add_subplot(gs[0])
-
-        fc_actual=plot_coherdist(ax,ans,fc,fl=fl,fu=fu,domean=domean)
-
+       # Plot Coherence vs distance 
+        fc_actual=plot_coherdist(ax0,ans,fc,fl=fl,fu=fu,domean=domean)
         gs.update(wspace=0.05, hspace=0.20)
 
+        # Plot Station Coherence Matrix 
+        cohere=plot_coherdist(ax1,ans,fc,fl=fl,fu=fu,domean=domean)
+        gs.update(wspace=0.05, hspace=0.20)
 
         outpng=f'{outfile}{fc:07.4f}.png'
         plt.savefig(outpng,bbox_inches='tight')
         plt.close()
 
-
 def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
-    _name=f'{__name__}.coherdist'
+    _name='plot_coherdist'
+    '''
+        ax=fig axes  (figure axes obj)
+        ans=a bad variable name
+        f1=lower limit of octave band (float)
+        fu=upper limit of octave band (float)
+        domean=if true (boolean)
+    '''
     color={"color": "0.9"}
     colors = [(1,1,1), (0, 0, 1), (0, 1, 0), (1, 0, 0)]
     colors = [(0, 0, 1), (0, 1, 0), (1, 0, 0)]
     cmap = LinearSegmentedColormap.from_list('my_colors', colors, N=6)
-
 
     dists=[]
     Cxys=[]
@@ -212,7 +236,6 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
         _idx1=find_nearest(freqs,fu)
     _idx=find_nearest(freqs,freq)
 
-    
     for i in ans:
         dists.append(i[0])
         azs.append(i[1])
@@ -247,6 +270,99 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
     ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
     ax.yaxis.grid(b=True, which="major", **color)
     ax.set_ylabel(f'Coherence',fontdict=fontdict_axis)
+
+
+    # plot colorbar
+    scat.set_cmap('RdYlGn')
+    pos1 = ax.get_position()
+    newax=[pos1.x0+pos1.width+.01, pos1.y0, 0.01,pos1.height]
+    fig=ax.get_figure()
+    ax1=fig.add_axes(newax)
+    cbar=fig.colorbar(scat, cax=ax1)
+    #cbar.set_label(r'Intra-station Azimuth $^\deg$',fontdict=fontdict_axis)
+    cbar.set_label(r'Coherence',fontdict=fontdict_axis)
+#    ax1.invert_yaxis()
+    ax1.yaxis.set_major_locator(MultipleLocator(30))
+    ax1.yaxis.set_major_locator(MultipleLocator(.25))
+#
+#
+#        # Title
+    ax.set_title(f'Coherence, center frequency: {freq:0.4f} Hz',fontdict={'fontsize':12},loc='left')
+
+    return  freqs[_idx]
+
+def plot_cohermatrix(ax,ans,freq,fl=None,fu=None,domean=None):
+    _name='plot_cohermatrix'
+    '''
+        ax=fig axes  (figure axes obj)
+        ans=a bad variable name, see make_fig
+        f1=lower limit of octave band (float)
+        fu=upper limit of octave band (float)
+        domean=if true (boolean)
+    '''
+    color={"color": "0.9"}
+    colors = [(1,1,1), (0, 0, 1), (0, 1, 0), (1, 0, 0)]
+    colors = [(0, 0, 1), (0, 1, 0), (1, 0, 0)]
+    cmap = LinearSegmentedColormap.from_list('my_colors', colors, N=6)
+
+    stas=ans[:,2] # aka x,y vector
+    Xs=[]
+    Ys=[]
+    Zs=[]
+    Cxys=[] # value to plot, aka z
+    azs=[]
+
+    # get freq index
+    freqs=ans[0][4]
+    if domean:
+        _idx0=find_nearest(freqs,fl)
+        _idx1=find_nearest(freqs,fu)
+    _idx=find_nearest(freqs,freq)
+
+    for i in ans: # loop through Cxy results
+        dists.append(i[0])
+        azs.append(i[1])
+        sta1=i[2]
+        sta2=i[3]
+        x=stas.index(sta1)
+        y=stas.index(sta2)
+        Xs.append(x)
+        Ys.append(y)
+
+        # Get Cxy result to plot
+        if domean:
+            mn=np.mean(i[5][_idx0:_idx1])
+            Cxys.append(mn)
+            z=mn
+        else:
+            Cxys.append(i[5][_idx])
+            z=i[5][_idx]
+            Zs.append(Z)
+
+    #scat=ax.scatter(dists,Cxys,c=azs,alpha=0.6,linewidth=0.35,marker='o',s=50,edgecolor='black',cmap=cmap)
+#    ax.scatter(f,Cxy,marker='o',s=70,linewidth=.1,c=cm.RdYlGn(Cxy),edgecolor='k',alpha=.9)
+    scat=ax.scatter(Xs,Ys,c=cm.RdYlGn(Zs),alpha=0.98,linewidth=0.35,marker='o',s=70,edgecolor='black')
+
+
+    # xaxis stuff
+    xmajor,xminor=tick_stride(np.min(Xs),np.max(Ys),base=1,prec=2)
+    ax.set_xlim(0,np.max(Xs)*1.05)
+    ax.xaxis.set_major_locator(MultipleLocator(xmajor))
+    ax.xaxis.set_major_formatter(FormatStrFormatter('%0.1f'))
+    ax.xaxis.set_minor_locator(MultipleLocator(xminor))
+    ax.xaxis.grid(b=True, which="minor", **color)
+    ax.xaxis.grid(b=True, which="major", **color)
+    ax.set_xlabel('Station',fontdict=fontdict_axis)
+#        ax.tick_params(labelbottom=False)    
+#    
+#        # yaxis stuff
+    ax.set_ylim(0,np.max(Ys))
+    ymajor,yminor=tick_stride(0,np.max(Ys),base=1,prec=2)
+    ax.yaxis.set_major_locator(MultipleLocator(ymajor))
+    ax.yaxis.set_minor_locator(MultipleLocator(yminor))
+    ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+    ax.yaxis.grid(b=True, which="major", **color)
+    ax.set_ylabel(f'Station',fontdict=fontdict_axis)
 
 
     # plot colorbar
