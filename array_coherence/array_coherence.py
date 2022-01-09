@@ -122,6 +122,7 @@ class array_coherence(object):
         for i,tr_i in enumerate(st):
             # Trace ID
             _idi=tr_i.id
+
             # Sample rate
             dt_i=tr_i.stats.delta
 
@@ -142,6 +143,7 @@ class array_coherence(object):
             tr_i.trim(starttime=startcut0,endtime=endcut0)
             tr_i.detrend(type='linear')
             tr_i.taper(0.05)
+            fs=tr_i.stats.sampling_rate
 
             if not nfft: nfft=2**nextpow2(tr_i.stats.npts)
             data_i=self.pad(tr_i.data,nfft)
@@ -149,7 +151,28 @@ class array_coherence(object):
             # remove station from stream so sta1 != sta2
             # move to end of next for loop to keep sta1 == sta2
             # otherwise sta1 != sta2
-#            st.remove(tr_i)
+
+            #  Do the auto-coherence 
+            gd=gdist(lati,loni,lati,loni)
+            m=gd[0]/1000 # distance (km)
+            a0=gd[1] # azimuth sta1->sta2
+            a1=gd[2] # azimuth sta2->sta1
+            a2=self.ang180(a0) # interstation azimuth (0-180)
+            f, Cxy = coherence(data_i, data_i, fs=fs ,nperseg=nperseg, noverlap=noverlap, nfft=nfft)
+            plot_twosta(f,Cxy,_idi,_idi,m)
+            # Cxy_results = array of arrays
+            # outer array, entry for each station pair
+            # inner array, results for that station pair, where array elements are
+            # element 0 = interstation distance distance, 
+            # element 1 = interstation azimuth
+            # element 2 = id 1st station
+            # element 3 = id 2nd station
+            # element 4 =  freq vector
+            # element 5 = coherency results
+            Cxy_results.append([m,a2,_idi,_idi,f,Cxy])
+            log.info(f'{_idi:>13s}->{_idi:>13s} D: {m:06.3f}km Az: {a2:03d} MaxC: {Cxy.max():04.2f} Nfrq: {len(f)}')
+
+            st.remove(tr_i)
 
             for tr_j in st:
                 _idj=tr_j.id
@@ -170,7 +193,6 @@ class array_coherence(object):
                 tr_j.taper(0.05)
                 data_j=self.pad(tr_j.data,nfft)
                 fs=tr_j.stats.sampling_rate
-#                st.remove(tr_i)
                 
                 f, Cxy = coherence(data_i, data_j, fs=fs ,nperseg=nperseg, noverlap=noverlap, nfft=nfft)
                 plot_twosta(f,Cxy,_idi,_idj,m)
