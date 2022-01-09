@@ -5,6 +5,7 @@
 # standard system stuff
 import sys
 from math import *
+import logging
 
 # Numpy
 import numpy as np
@@ -38,6 +39,7 @@ fontdict_axis={'fontsize':14 }
 fontdict_title={'fontsize':14 }
 axis_tick_size=14
 
+log=logging.getLogger(__name__)
 
 def plot_wigs(st,zero_off,beam=None,zscl=0.0,env=False,outfig='recsection.png'):
     _name='plot_wigs'
@@ -196,20 +198,27 @@ def make_fig(ans,fcs,outfile,fls=None,fus=None,domean=True):
 
     for fc,fl,fu in zip(fcs,fls,fus):
         
-        fig = plt.figure(figsize=(8, 5),dpi=200)
-        gs=fig.add_gridspec(1,2)
+        # Plot Coherence vs distance 
+        fig = plt.figure(figsize=(8, 4),dpi=150)
+        gs=fig.add_gridspec(1,1)
         ax0=fig.add_subplot(gs[0])
-        ax1=fig.add_subplot(gs[1])
 
-       # Plot Coherence vs distance 
         fc_actual=plot_coherdist(ax0,ans,fc,fl=fl,fu=fu,domean=domean)
         gs.update(wspace=0.05, hspace=0.20)
+        outpng=f'{outfile}{fc:06.2f}.dist.png'
+        plt.savefig(outpng,bbox_inches='tight')
+        plt.close()
 
         # Plot Station Coherence Matrix 
-        cohere=plot_coherdist(ax1,ans,fc,fl=fl,fu=fu,domean=domean)
-        gs.update(wspace=0.05, hspace=0.20)
+        fig = plt.figure(figsize=(4, 5),dpi=150)
+        gs=fig.add_gridspec(1,1)
+        ax0=fig.add_subplot(gs[0])
+#        ax0.axis('equal')
+        ax0.set_aspect('equal', 'box')
+        cohere=plot_cohermatrix(ax0,ans,fc,fl=fl,fu=fu,domean=domean)
+        gs.update(wspace=.05, hspace=0.20)
 
-        outpng=f'{outfile}{fc:07.4f}.png'
+        outpng=f'{outfile}{fc:06.2f}.matrix.png'
         plt.savefig(outpng,bbox_inches='tight')
         plt.close()
 
@@ -279,15 +288,12 @@ def plot_coherdist(ax,ans,freq,fl=None,fu=None,domean=None):
     fig=ax.get_figure()
     ax1=fig.add_axes(newax)
     cbar=fig.colorbar(scat, cax=ax1)
-    #cbar.set_label(r'Intra-station Azimuth $^\deg$',fontdict=fontdict_axis)
     cbar.set_label(r'Coherence',fontdict=fontdict_axis)
-#    ax1.invert_yaxis()
+
     ax1.yaxis.set_major_locator(MultipleLocator(30))
     ax1.yaxis.set_major_locator(MultipleLocator(.25))
-#
-#
-#        # Title
-    ax.set_title(f'Coherence, center frequency: {freq:0.4f} Hz',fontdict={'fontsize':12},loc='left')
+    # Title
+    ax.set_title(f'Coherence, center frequency: {freq:0.2f} Hz',fontdict={'fontsize':12},loc='left')
 
     return  freqs[_idx]
 
@@ -305,12 +311,17 @@ def plot_cohermatrix(ax,ans,freq,fl=None,fu=None,domean=None):
     colors = [(0, 0, 1), (0, 1, 0), (1, 0, 0)]
     cmap = LinearSegmentedColormap.from_list('my_colors', colors, N=6)
 
-    stas=ans[:,2] # aka x,y vector
+    tmp=[]
+    for i in ans:
+        tmp.append(i[2])
+        tmp.append(i[3])
+    stas=sorted(set(tmp))
+
+    log.debug(f'{_name}: stas =  {stas}')
     Xs=[]
     Ys=[]
     Zs=[]
     Cxys=[] # value to plot, aka z
-    azs=[]
 
     # get freq index
     freqs=ans[0][4]
@@ -320,14 +331,11 @@ def plot_cohermatrix(ax,ans,freq,fl=None,fu=None,domean=None):
     _idx=find_nearest(freqs,freq)
 
     for i in ans: # loop through Cxy results
-        dists.append(i[0])
-        azs.append(i[1])
         sta1=i[2]
         sta2=i[3]
         x=stas.index(sta1)
         y=stas.index(sta2)
-        Xs.append(x)
-        Ys.append(y)
+        log.debug(f'{_name} sta1={sta1} id1={x} sta2={sta2} id2={y}')
 
         # Get Cxy result to plot
         if domean:
@@ -337,32 +345,41 @@ def plot_cohermatrix(ax,ans,freq,fl=None,fu=None,domean=None):
         else:
             Cxys.append(i[5][_idx])
             z=i[5][_idx]
-            Zs.append(Z)
+        Xs.append(x)
+        Ys.append(y)
+        Zs.append(z)
 
-    #scat=ax.scatter(dists,Cxys,c=azs,alpha=0.6,linewidth=0.35,marker='o',s=50,edgecolor='black',cmap=cmap)
+        Xs.append(y)
+        Ys.append(x)
+        Zs.append(z)
+    idx = np.lexsort((Xs, Ys)).reshape(len(stas), len(stas))
 #    ax.scatter(f,Cxy,marker='o',s=70,linewidth=.1,c=cm.RdYlGn(Cxy),edgecolor='k',alpha=.9)
-    scat=ax.scatter(Xs,Ys,c=cm.RdYlGn(Zs),alpha=0.98,linewidth=0.35,marker='o',s=70,edgecolor='black')
+    #scat=ax.scatter(Xs,Ys,c=cm.RdYlGn(Zs),alpha=0.98,linewidth=0.35,marker='o',s=70,edgecolor='black')
+    scat=ax.imshow(Zs[idx],extent=[min(Xs),max(Xs),min(Ys),max(Ys)],
+           origin="lower",cmap=cm.RdYlGn)
 
+    ticks=list(range(0,len(stas)))
+    labels=[sta.split(".")[1] for sta in stas]
 
     # xaxis stuff
     xmajor,xminor=tick_stride(np.min(Xs),np.max(Ys),base=1,prec=2)
-    ax.set_xlim(0,np.max(Xs)*1.05)
+    ax.set_xlim(-1,np.max(Xs)+1)
     ax.xaxis.set_major_locator(MultipleLocator(xmajor))
-    ax.xaxis.set_major_formatter(FormatStrFormatter('%0.1f'))
-    ax.xaxis.set_minor_locator(MultipleLocator(xminor))
+    ax.xaxis.set_major_formatter(FormatStrFormatter('%d'))
     ax.xaxis.grid(b=True, which="minor", **color)
     ax.xaxis.grid(b=True, which="major", **color)
     ax.set_xlabel('Station',fontdict=fontdict_axis)
+    ax.set_xticks(ticks,labels,rotation=90)
 #        ax.tick_params(labelbottom=False)    
 #    
 #        # yaxis stuff
-    ax.set_ylim(0,np.max(Ys))
+    ax.set_ylim(-1,np.max(Ys)+1)
     ymajor,yminor=tick_stride(0,np.max(Ys),base=1,prec=2)
     ax.yaxis.set_major_locator(MultipleLocator(ymajor))
-    ax.yaxis.set_minor_locator(MultipleLocator(yminor))
-    ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+    ax.yaxis.set_major_formatter(FormatStrFormatter('%d'))
     ax.yaxis.grid(b=True, which="major", **color)
     ax.set_ylabel(f'Station',fontdict=fontdict_axis)
+    ax.set_yticks(ticks,labels)
 
 
     # plot colorbar
@@ -374,13 +391,13 @@ def plot_cohermatrix(ax,ans,freq,fl=None,fu=None,domean=None):
     cbar=fig.colorbar(scat, cax=ax1)
     #cbar.set_label(r'Intra-station Azimuth $^\deg$',fontdict=fontdict_axis)
     cbar.set_label(r'Coherence',fontdict=fontdict_axis)
-#    ax1.invert_yaxis()
+    ax1.invert_yaxis()
     ax1.yaxis.set_major_locator(MultipleLocator(30))
     ax1.yaxis.set_major_locator(MultipleLocator(.25))
-#
+
 #
 #        # Title
-    ax.set_title(f'Coherence, center frequency: {freq:0.4f} Hz',fontdict={'fontsize':12},loc='left')
+    ax.set_title(f'Coherence, center frequency: {freq:0.2f} Hz',fontdict={'fontsize':12},loc='left')
 
     return  freqs[_idx]
 
