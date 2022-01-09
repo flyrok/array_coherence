@@ -7,6 +7,8 @@ import sys
 from array_coherence import array_coherence
 from array_coherence import template_config
 from array_coherence import progname,__version__
+from array_coherence.setup_log import setup_log
+
 
 def main():
     '''
@@ -37,8 +39,12 @@ def main():
     ini_file=args.ini
     debug=args.verbose
 
+    log=setup_log(debug)
+
     # Do it all 
-    arr_obj=array_coherence(sac_files=sac_files,ini_file=ini_file,debug=debug)
+    log.debug(f'Input SAC file:\n{sac_files}')
+    arr_obj=array_coherence(sac_files=sac_files,ini_file=ini_file,debug=log.level)
+    log.info(f'Running coherence and plotting ...')
     arr_obj.run_coherence_scipy()
 
 
