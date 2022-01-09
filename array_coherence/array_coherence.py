@@ -147,7 +147,9 @@ class array_coherence(object):
             data_i=self.pad(tr_i.data,nfft)
 
             # remove station from stream so sta1 != sta2
-            st.remove(tr_i)
+            # move to end of next for loop to keep sta1 == sta2
+            # otherwise sta1 != sta2
+#            st.remove(tr_i)
 
             for tr_j in st:
                 _idj=tr_j.id
@@ -168,6 +170,7 @@ class array_coherence(object):
                 tr_j.taper(0.05)
                 data_j=self.pad(tr_j.data,nfft)
                 fs=tr_j.stats.sampling_rate
+                st.remove(tr_j)
                 
                 f, Cxy = coherence(data_i, data_j, fs=fs ,nperseg=nperseg, noverlap=noverlap, nfft=nfft)
                 plot_twosta(f,Cxy,_idi,_idj,m)
