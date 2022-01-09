@@ -10,10 +10,10 @@ def setup_log(debug):
         loglevel="WARN"
     elif debug == 1:
         loglevel="INFO"
-    else:
+    elif debug > 1:
         loglevel="DEBUG"
 
-    log=logging.getLogger(' ')
+    log=logging.getLogger()
     stream=sys.stdout,
     logging.basicConfig(stream=sys.stdout,datefmt="%Y-%jT%H:%M:%S",
         format="%(asctime)s-%(levelname)s %(message)s")
@@ -21,5 +21,7 @@ def setup_log(debug):
     if debug:
         log.info(f'{__name__} loglevel set to {loglevel}:{log.level}')
     logging.getLogger('matplotlib.font_manager').disabled = True
+    logging.getLogger('matplotlib.colors').disabled = True
+    logging.getLogger('matplotlib.ticker').disabled = True
     return log
 
