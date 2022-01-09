@@ -26,15 +26,20 @@ from scipy.signal import coherence
 #from mtspec import mt_coherence as mtcoh
 
 from array_coherence.plot_coherence import plot_twosta,plot_wigs,make_fig
-from array_coherence.setup_log import setup_log
+import logging
 
-log=logging.getLogger(__name__)
+try:
+    log=logging.getLogger(__name__)
+except:
+    print('NO LOGGING')
+    pass
 
 class array_coherence(object):
-    def __init__(self,sac_files,ini_file=None,outfile='tmp.png',debug=None):
+    def __init__(self,sac_files,ini_file=None,outfile='tmp.png',debug=10):
         '''
         '''
-        
+#        log.setLevel(debug)
+        log.warn(f'array_coherence log level set to {log.level}')
         # load the ini configuration files
         self.ini=self.read_ini(ini_file)
         # set sac files# 
@@ -140,6 +145,8 @@ class array_coherence(object):
 
             if not nfft: nfft=2**nextpow2(tr_i.stats.npts)
             data_i=self.pad(tr_i.data,nfft)
+
+            # remove station from stream so sta1 != sta2
             st.remove(tr_i)
 
             for tr_j in st:
@@ -164,6 +171,15 @@ class array_coherence(object):
                 
                 f, Cxy = coherence(data_i, data_j, fs=fs ,nperseg=nperseg, noverlap=noverlap, nfft=nfft)
                 plot_twosta(f,Cxy,_idi,_idj,m)
+                # Cxy_results = array of arrays
+                # outer array, entry for each station pair
+                # inner array, results for that station pair, where array elements are
+                # element 0 = interstation distance distance, 
+                # element 1 = interstation azimuth
+                # element 2 = id 1st station
+                # element 3 = id 2nd station
+                # element 4 =  freq vector
+                # element 5 = coherency results
                 Cxy_results.append([m,a2,_idi,_idj,f,Cxy])
                 log.info(f'{_idi:>13s}->{_idj:>13s} D: {m:06.3f}km Az: {a2:03d} MaxC: {Cxy.max():04.2f} Nfrq: {len(f)}')
         return Cxy_results 
