@@ -170,7 +170,7 @@ class array_coherence(object):
                 tr_j.taper(0.05)
                 data_j=self.pad(tr_j.data,nfft)
                 fs=tr_j.stats.sampling_rate
-                st.remove(tr_j)
+#                st.remove(tr_i)
                 
                 f, Cxy = coherence(data_i, data_j, fs=fs ,nperseg=nperseg, noverlap=noverlap, nfft=nfft)
                 plot_twosta(f,Cxy,_idi,_idj,m)
