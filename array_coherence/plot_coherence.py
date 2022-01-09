@@ -210,7 +210,7 @@ def make_fig(ans,fcs,outfile,fls=None,fus=None,domean=True):
         plt.close()
 
         # Plot Station Coherence Matrix 
-        fig = plt.figure(figsize=(4, 5),dpi=150)
+        fig = plt.figure(figsize=(4, 5.5),dpi=150)
         gs=fig.add_gridspec(1,1)
         ax0=fig.add_subplot(gs[0])
 #        ax0.axis('equal')
@@ -320,7 +320,7 @@ def plot_cohermatrix(ax,ans,freq,fl=None,fu=None,domean=None):
     log.debug(f'{_name}: stas =  {stas}')
     Xs=[]
     Ys=[]
-    Zs=[]
+    Zs=np.ndarray([len(stas),len(stas)])
     Cxys=[] # value to plot, aka z
 
     # get freq index
@@ -347,45 +347,40 @@ def plot_cohermatrix(ax,ans,freq,fl=None,fu=None,domean=None):
             z=i[5][_idx]
         Xs.append(x)
         Ys.append(y)
-        Zs.append(z)
+        Zs[x,y]=z
+        Zs[y,x]=z
+#        Zs.append(z)
 
         Xs.append(y)
         Ys.append(x)
-        Zs.append(z)
-    idx = np.lexsort((Xs, Ys)).reshape(len(stas), len(stas))
-#    ax.scatter(f,Cxy,marker='o',s=70,linewidth=.1,c=cm.RdYlGn(Cxy),edgecolor='k',alpha=.9)
-    #scat=ax.scatter(Xs,Ys,c=cm.RdYlGn(Zs),alpha=0.98,linewidth=0.35,marker='o',s=70,edgecolor='black')
-    scat=ax.imshow(Zs[idx],extent=[min(Xs),max(Xs),min(Ys),max(Ys)],
-           origin="lower",cmap=cm.RdYlGn)
+#        Zs.append(z)
+    scat=ax.matshow(Zs,extent=[0,len(stas)+1,0,len(stas)+1],
+            alpha=0.75,
+            aspect='equal', origin="lower",cmap=cm.RdYlGn)
 
-    ticks=list(range(0,len(stas)))
+#    ticks=list(range(0,len(stas)))
+    ticks=np.linspace(0.5,len(stas)+0.5,num=len(stas))
+    ticks_minor=np.linspace(0.0,len(stas),num=len(stas))
     labels=[sta.split(".")[1] for sta in stas]
 
     # xaxis stuff
-    xmajor,xminor=tick_stride(np.min(Xs),np.max(Ys),base=1,prec=2)
-    ax.set_xlim(-1,np.max(Xs)+1)
-    ax.xaxis.set_major_locator(MultipleLocator(xmajor))
-    ax.xaxis.set_major_formatter(FormatStrFormatter('%d'))
-    ax.xaxis.grid(b=True, which="minor", **color)
-    ax.xaxis.grid(b=True, which="major", **color)
+    ax.set_xlim(0,len(stas)+1)
     ax.set_xlabel('Station',fontdict=fontdict_axis)
     ax.set_xticks(ticks,labels,rotation=90)
-#        ax.tick_params(labelbottom=False)    
+    ax.tick_params(labelbottom=True)    
+    ax.tick_params(labeltop=False)    
 #    
-#        # yaxis stuff
-    ax.set_ylim(-1,np.max(Ys)+1)
-    ymajor,yminor=tick_stride(0,np.max(Ys),base=1,prec=2)
-    ax.yaxis.set_major_locator(MultipleLocator(ymajor))
-    ax.yaxis.set_major_formatter(FormatStrFormatter('%d'))
-    ax.yaxis.grid(b=True, which="major", **color)
+    # yaxis stuff
+    ax.set_ylim(0,len(stas)+1)
     ax.set_ylabel(f'Station',fontdict=fontdict_axis)
-    ax.set_yticks(ticks,labels)
+    ax.set_yticks(ticks,labels,minor=False)
+    ax.yaxis.grid(True, which='minor')
 
 
     # plot colorbar
     scat.set_cmap('RdYlGn')
     pos1 = ax.get_position()
-    newax=[pos1.x0+pos1.width+.01, pos1.y0, 0.01,pos1.height]
+    newax=[pos1.x0+pos1.width+.01, pos1.y0, 0.025,pos1.height]
     fig=ax.get_figure()
     ax1=fig.add_axes(newax)
     cbar=fig.colorbar(scat, cax=ax1)
