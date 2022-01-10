@@ -366,7 +366,9 @@ def plot_cohermatrix(ax,ans,freq,fl=None,fu=None,domean=None):
     # xaxis stuff
     ax.set_xlim(0,len(stas)+1)
     ax.set_xlabel('Station',fontdict=fontdict_axis)
-    ax.set_xticks(ticks,labels,rotation=90)
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(labels,rotation=90)
+#    ax.set_xticks(ticks,labels,rotation=90)
     ax.tick_params(labelbottom=True)    
     ax.tick_params(labeltop=False)    
 #    
