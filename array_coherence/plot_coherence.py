@@ -354,6 +354,8 @@ def plot_cohermatrix(ax,ans,freq,fl=None,fu=None,domean=None):
         Xs.append(y)
         Ys.append(x)
 #        Zs.append(z)
+    coherence_mean=np.mean(Zs)
+    coherence_std=np.std(Zs)
     scat=ax.matshow(Zs,extent=[0,len(stas)+1,0,len(stas)+1],
             alpha=0.75,
             aspect='equal', origin="lower",cmap=cm.RdYlGn)
@@ -375,7 +377,8 @@ def plot_cohermatrix(ax,ans,freq,fl=None,fu=None,domean=None):
     # yaxis stuff
     ax.set_ylim(0,len(stas)+1)
     ax.set_ylabel(f'Station',fontdict=fontdict_axis)
-    ax.set_yticks(ticks,labels,minor=False)
+    ax.set_yticks(ticks)
+    ax.set_yticklabels(labels)
     ax.yaxis.grid(True, which='minor')
 
 
@@ -386,15 +389,16 @@ def plot_cohermatrix(ax,ans,freq,fl=None,fu=None,domean=None):
     fig=ax.get_figure()
     ax1=fig.add_axes(newax)
     cbar=fig.colorbar(scat, cax=ax1)
+    scat.set_clim(0,1.0)
     #cbar.set_label(r'Intra-station Azimuth $^\deg$',fontdict=fontdict_axis)
     cbar.set_label(r'Coherence',fontdict=fontdict_axis)
-    ax1.invert_yaxis()
+    #ax1.invert_yaxis()
     ax1.yaxis.set_major_locator(MultipleLocator(30))
     ax1.yaxis.set_major_locator(MultipleLocator(.25))
 
 #
 #        # Title
-    ax.set_title(f'Coherence, center frequency: {freq:0.2f} Hz',fontdict={'fontsize':12},loc='left')
+    ax.set_title(f'Coherence (mean={coherence_mean:0.2f}, std={coherence_std:0.2f})\ncenter frequency: {freq:0.2f} Hz',fontdict={'fontsize':12},loc='left')
 
     return  freqs[_idx]
 
